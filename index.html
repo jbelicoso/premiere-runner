@@ -1,0 +1,998 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Premiere Runner — Adobe Cursos Quito</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; background:#141414; color:#c4c4c4; font-family:"Segoe UI", system-ui, -apple-system, sans-serif; font-size:14px; }
+  .app { max-width:1100px; margin:0 auto; padding:10px; }
+  .titlebar { background:#1a1a1a; border:1px solid #0d0d0d; padding:6px 10px; font-size:12.5px; color:#9a9a9a; display:flex; justify-content:space-between; }
+  .menubar { background:#2b2b2b; border:1px solid #0d0d0d; border-top:none; display:flex; gap:2px; padding:2px 6px; font-size:13px; }
+  .menubar span { padding:3px 9px; color:#c8c8c8; }
+  .tabs { background:#232323; border:1px solid #0d0d0d; border-top:none; display:flex; gap:2px; padding:3px 8px; font-size:12.5px; }
+  .tabs span { padding:3px 11px; color:#8e8e8e; }
+  .tabs span.on { color:#fff; border-bottom:2px solid #2d8ceb; }
+  .stage { position:relative; border:1px solid #0d0d0d; border-top:none; background:#232323; }
+  canvas { display:block; width:100%; height:auto; background:#232323; outline:none; touch-action:none; cursor:default; }
+  canvas.grab { cursor:grab; }
+  canvas.grabbing { cursor:grabbing; }
+  .foot { display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px; padding:9px 4px; font-size:13px; color:#9a9a9a; }
+  .foot label { margin-right:14px; cursor:pointer; }
+  kbd { background:#3a3a3a; border:1px solid #1d1d1d; border-bottom-width:2px; border-radius:4px; padding:1px 7px; color:#e6e6e6; font-family:inherit; font-size:12.5px; }
+  #ov { position:absolute; inset:0; background:rgba(15,15,15,.9); display:flex; align-items:flex-start; justify-content:center; z-index:5; overflow:auto; padding:10px 0; }
+  #ov.hide { display:none; }
+  .box { margin:auto; background:#2b2b2b; border:1px solid #4a4a4a; border-radius:10px; padding:22px 26px; max-width:640px; width:94%; text-align:center; color:#dcdcdc; }
+  .box h2 { margin:0 0 10px; font-size:23px; color:#fff; font-weight:600; }
+  .box p { margin:8px 0; line-height:1.55; font-size:15px; }
+  .box img.pose { height:120px; display:block; margin:0 auto 6px; }
+  .box select, .box button { font:inherit; font-size:15px; }
+  .box select { background:#1d1d1d; color:#eee; border:1px solid #555; border-radius:6px; padding:9px 10px; margin:10px 0; width:100%; max-width:430px; }
+  .btn { background:#2d8ceb; color:#fff; border:none; border-radius:7px; padding:12px 26px; cursor:pointer; margin:12px 6px 0; font-weight:600; }
+  .btn:hover { background:#4aa0f5; }
+  .btn.sec { background:#4a4a4a; }
+  .btn.sec:hover { background:#5c5c5c; }
+  .modes { display:flex; gap:10px; justify-content:center; margin:14px 0 4px; }
+  .mode { flex:1; max-width:220px; background:#1d1d1d; border:2px solid #3a3a3a; border-radius:8px; padding:12px 10px; cursor:pointer; text-align:left; }
+  .mode.on { border-color:#2d8ceb; background:#1b2838; }
+  .mode b { display:block; color:#fff; font-size:15px; margin-bottom:3px; }
+  .mode span { font-size:12.5px; color:#9a9a9a; line-height:1.4; }
+  .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; margin:14px 0 4px; }
+  .stats div { background:#1d1d1d; border-radius:7px; padding:10px 4px; font-size:12px; }
+  .stats b { display:block; font-size:19px; color:#fff; }
+  .record { color:#f0b33c; font-size:13.5px; margin-top:8px; }
+  .help { text-align:left; font-size:14px; line-height:1.7; background:#1d1d1d; border-radius:7px; padding:12px 16px; margin:12px 0; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="titlebar"><span>Adobe Premiere Pro 2019 — C:\Cursos\Practica_Runner.prproj *</span><span>Adobe Cursos Quito</span></div>
+  <div class="menubar"><span>Archivo</span><span>Edición</span><span>Clip</span><span>Secuencia</span><span>Marcadores</span><span>Gráficos</span><span>Ver</span><span>Ventana</span><span>Ayuda</span></div>
+  <div class="tabs"><span>Montaje</span><span class="on">Edición</span><span>Color</span><span>Efectos</span><span>Audio</span><span>Gráficos</span></div>
+  <div class="stage">
+    <canvas id="cv" width="960" height="540" tabindex="0"></canvas>
+    <div id="ov"></div>
+  </div>
+  <div class="foot">
+    <span>Teclas: <kbd>J</kbd> atrás · <kbd>K</kbd> parar · <kbd>L</kbd> adelante · <kbd>ESPACIO</kbd> play/pausa · <kbd>I</kbd> entrada · <kbd>O</kbd> salida · <kbd>,</kbd> insertar · <kbd>Esc</kbd> pausa</span>
+    <span>
+      <label><input type="checkbox" id="optLight"> Modo ligero</label>
+      <label><input type="checkbox" id="optSound" checked> Sonido</label>
+      <label><input type="checkbox" id="optMusic" checked> Música</label>
+    </span>
+  </div>
+</div>
+
+<script>
+(function(){
+'use strict';
+
+/* ======================= Configuración ======================= */
+var W = 960, H = 540, FPS = 25, CLIP_SECS = 20;
+var LIVES = 5, SNAP = 26;
+var SAVE_KEY = 'premiere_runner_v3';
+
+// Zonas del lienzo
+var PRJ = { x:0, y:22, w:288, h:206 };                 // panel Proyecto
+var MON = { x:298, y:22, w:364, h:206 };               // monitor de origen
+var VID = { x:302, y:46, w:356, h:140 };               // área de video
+var SCR = { x:302, y:196, w:356, h:20 };               // barra de scrub
+var HUD = { x:672, y:22, w:288, h:206 };
+var BAR = { y:230, h:52 };                             // banda de instrucción
+var KEYS_Y = 286;
+var TL_X = 80, TL_Y = 332, RULER_Y = 354, TRACK_Y = 382, TRACK_H = 58, A_Y = 446, A_H = 30;
+
+var KEYNAME = { Space:'ESPACIO', KeyJ:'J', KeyK:'K', KeyL:'L', KeyI:'I', KeyO:'O' };
+var KEYDESC = { Space:'play / pausa', KeyJ:'atrás', KeyK:'parar', KeyL:'adelante', KeyI:'entrada', KeyO:'salida' };
+var TRANSPORT = { Space:1, KeyJ:1, KeyK:1, KeyL:1, KeyI:1, KeyO:1 };
+
+/* --- Pasos: cada uno es una condición sobre el estado, no una tecla capturada.
+       El alumno maneja el transporte libremente, como en Premiere. --- */
+var STEPS = {
+  abrir: {
+    hint: function(C){ return 'Haz doble clic en ' + C.clip.name + ' para abrirlo en el monitor de origen'; },
+    short: 'Abrir el clip',
+    done: function(C){ return C.open; }
+  },
+  reproducir: {
+    hint: function(){ return 'Pulsa L (o ESPACIO) para reproducir el clip'; },
+    short: 'Reproducir',
+    done: function(C){ return C.played; }
+  },
+  parar: {
+    hint: function(){ return 'Ahora pulsa K (o ESPACIO) para detener la reproducción'; },
+    short: 'Detener',
+    done: function(C){ return C.played && C.stopped; }
+  },
+  pararZona: {
+    hint: function(){ return 'Detén el clip con K justo dentro de la franja verde'; },
+    short: 'Parar en la franja',
+    done: function(C){ return C.dir === 0 && C.sp >= C.ga && C.sp <= C.gb; },
+    aviso: function(C){ return C.sp > C.gb ? 'Se te pasó. Pulsa J para regresar.' : ''; }
+  },
+  retroceder: {
+    hint: function(){ return 'Pulsa J para retroceder y vuelve a entrar en la franja verde'; },
+    short: 'Retroceder',
+    done: function(C){ return C.wentBack; }
+  },
+  pararZona2: {
+    hint: function(){ return 'Vuelve a detener con K dentro de la franja verde'; },
+    short: 'Parar en la franja',
+    done: function(C){ return C.dir === 0 && C.sp >= C.ga && C.sp <= C.gb; }
+  },
+  marcarI: {
+    hint: function(){ return 'Pulsa I al comienzo de la franja verde para marcar la ENTRADA'; },
+    short: 'Marcar entrada',
+    done: function(C){ return C.inM !== null && C.inM >= C.ga - .02 && C.inM <= C.ga + .16; },
+    aviso: function(C){ return C.inM === null ? '' : 'La entrada quedó fuera del comienzo verde. Muévete y vuelve a pulsar I.'; }
+  },
+  marcarO: {
+    hint: function(){ return 'Pulsa O al final de la franja verde para marcar la SALIDA'; },
+    short: 'Marcar salida',
+    done: function(C){ return C.outM !== null && C.outM >= C.gb - .16 && C.outM <= C.gb + .02 && C.outM > C.inM; },
+    aviso: function(C){ return C.outM === null ? '' : 'La salida quedó fuera del final verde. Muévete y vuelve a pulsar O.'; }
+  },
+  arrastrar: {
+    hint: function(C){
+      if (S.gap) return 'Arrastra el clip hacia la izquierda hasta que se pegue al anterior';
+      return S.clips.length
+        ? 'Arrastra el clip del monitor hasta la pista V1, pegado al clip anterior'
+        : 'Arrastra el clip del monitor hasta el comienzo de la pista V1'; },
+    short: function(){ return S.gap ? 'Cerrar el hueco' : 'Arrastrar a V1'; },
+    done: function(C){ return C.placed && !S.gap; }
+  }
+};
+
+var LEVELS = [
+  { name:'Abrir el clip y reproducirlo',  steps:['abrir','reproducir','parar'],                              clips:3, auto:true,  rate:.34, win:9 },
+  { name:'Moverse con J, K y L',          steps:['abrir','reproducir','pararZona','retroceder','pararZona2'],clips:3, auto:true,  rate:.34, win:9 },
+  { name:'Marcar entrada (I) y salida (O)',steps:['abrir','reproducir','marcarI','marcarO'],                 clips:4, auto:true,  rate:.30, win:9 },
+  { name:'Arrastrar el clip a la línea de tiempo', steps:['abrir','arrastrar'],                              clips:4, auto:false, rate:.30, win:12 },
+  { name:'Flujo completo',                steps:['abrir','reproducir','marcarI','marcarO','arrastrar'],      clips:5, auto:false, rate:.30, win:10 },
+  { name:'Reto: flujo completo con reloj',steps:['abrir','reproducir','marcarI','marcarO','arrastrar'],      clips:6, auto:false, rate:.42, win:6, reto:true }
+];
+
+var CLIPNAMES = ['Entrevista_01.mp4','Plaza_Grande.mp4','Teleferico.mp4','Mitad_Mundo.mp4','Mercado_02.mp4',
+                 'Atardecer.mp4','Taller_B.mp4','Calle_Ronda.mp4'];
+
+/* ======================= Estado ======================= */
+var S = {
+  mode:'menu',        // menu | play | pause | result | over
+  reto:false,         // modo con reloj y vidas
+  level:0, lives:LIVES, time:0,
+  bin:[], clips:[], C:null, done:0, gap:null,
+  play:null,          // reproducción final de la secuencia
+  cam:0, drag:null, hover:null,
+  msg:null, aviso:'', shake:0, flash:0, hop:0, fall:null,
+  steps:0, errs:0, score:0, combo:0, bestCombo:0,
+  parts:[], pops:[], wipe:0,
+  keyFlash:{}, light:false, sound:true, music:true
+};
+var cv = document.getElementById('cv');
+var ctx = cv.getContext('2d');
+var ov = document.getElementById('ov');
+
+/* ======================= Imágenes ======================= */
+var POSES = { corre1:1, corre2:1, corre3:1, salta:1, cae:1, celebra:1, triste:1 };
+var IMG = {};
+Object.keys(POSES).forEach(function(k){
+  var im = new Image();
+  im.onload = function(){ IMG[k] = im; };
+  im.src = 'assets/' + k + '.png';
+});
+function runFrame(t){
+  var seq = ['corre1','corre2','corre3','corre2'];
+  return IMG[seq[Math.floor(t * 9) % 4]] || IMG.corre1 || null;
+}
+
+function lv(){ return LEVELS[S.level]; }
+function lastEnd(){ var m = 0; S.clips.forEach(function(c){ if (c.x1 > m) m = c.x1; }); return m; }
+function stepId(){ var C = S.C; return C ? lv().steps[C.si] : null; }
+function stepDef(){ var id = stepId(); return id ? STEPS[id] : null; }
+
+/* ======================= Guardado ======================= */
+function load(){ try { return JSON.parse(localStorage.getItem(SAVE_KEY)) || {}; } catch(e){ return {}; } }
+function save(d){ try { localStorage.setItem(SAVE_KEY, JSON.stringify(d)); } catch(e){} }
+function best(i){ var d = load(); return (d.best && d.best[i]) || null; }
+function saveRun(){
+  var d = load(); d.best = d.best || {};
+  var k = S.level + (S.reto ? 'r' : ''), b = d.best[k];
+  var nuevo = !b || S.score > b.score;
+  if (nuevo) d.best[k] = { score:S.score, prec:precision(), combo:S.bestCombo };
+  d.reached = Math.max(d.reached || 0, S.level);
+  save(d);
+  return nuevo;
+}
+function bestK(i, reto){ var d = load(); return (d.best && d.best[i + (reto ? 'r' : '')]) || null; }
+
+/* ======================= Audio ======================= */
+var actx = null;
+function ac(){
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; } }
+  if (actx && actx.state === 'suspended') actx.resume();
+  return actx;
+}
+function beep(f, d, type, vol){
+  if (!S.sound) return;
+  var a = ac(); if (!a) return;
+  try {
+    var o = a.createOscillator(), g = a.createGain();
+    o.type = type || 'square'; o.frequency.value = f; g.gain.value = vol || .05;
+    o.connect(g); g.connect(a.destination); o.start();
+    g.gain.exponentialRampToValueAtTime(.0001, a.currentTime + d);
+    o.stop(a.currentTime + d);
+  } catch(e){}
+}
+var MUS = { gain:null, timer:null, next:0, step:0 };
+var BPM = 100, SPB = 60 / BPM / 2;
+var BASS = [55.00, 55.00, 73.42, 65.41];
+var ARP  = [440.00, 523.25, 659.25, 523.25, 493.88, 587.33, 698.46, 587.33,
+            392.00, 466.16, 587.33, 466.16, 349.23, 440.00, 523.25, 440.00];
+function musVoice(a, f, t, dur, type, vol){
+  var o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.value = f;
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + .01);
+  g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g); g.connect(MUS.gain); o.start(t); o.stop(t + dur + .02);
+}
+function musHat(a, t){
+  var b = a.createBuffer(1, 1100, a.sampleRate), d = b.getChannelData(0);
+  for (var i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+  var s = a.createBufferSource(), g = a.createGain();
+  s.buffer = b; g.gain.value = .03;
+  s.connect(g); g.connect(MUS.gain); s.start(t);
+}
+function musSchedule(){
+  var a = ac(); if (!a) return;
+  while (MUS.next < a.currentTime + .25) {
+    var st = MUS.step % 16;
+    if (st % 4 === 0) musVoice(a, BASS[(MUS.step / 4 | 0) % 4], MUS.next, .42, 'triangle', .08);
+    musVoice(a, ARP[st], MUS.next, .16, 'square', .02);
+    if (st % 2 === 0) musHat(a, MUS.next);
+    MUS.next += SPB; MUS.step++;
+  }
+}
+function musStart(){
+  var a = ac(); if (!a || MUS.timer) return;
+  if (!MUS.gain) { MUS.gain = a.createGain(); MUS.gain.connect(a.destination); }
+  MUS.gain.gain.value = S.music ? .45 : 0;
+  MUS.next = a.currentTime + .1; MUS.step = 0;
+  MUS.timer = setInterval(musSchedule, 60);
+}
+function musStop(){ if (MUS.timer) { clearInterval(MUS.timer); MUS.timer = null; } }
+function musVol(){ if (MUS.gain) MUS.gain.gain.value = S.music ? .45 : 0; }
+
+/* ======================= Efectos ======================= */
+function burst(x, y, n, colors){
+  if (S.light) n = Math.min(n, 8);
+  for (var i = 0; i < n; i++) {
+    var ang = Math.random() * Math.PI * 2, sp = 60 + Math.random() * 190;
+    S.parts.push({ x:x, y:y, vx:Math.cos(ang) * sp, vy:Math.sin(ang) * sp - 70,
+                   life:.5 + Math.random() * .5, t:0, c:colors[i % colors.length], r:2 + Math.random() * 3 });
+  }
+}
+function pop(x, y, text, color){ S.pops.push({ x:x, y:y, text:text, c:color, t:0 }); }
+function aviso(t){ S.aviso = t; S.avisoT = 2.2; }
+
+/* ======================= Flujo ======================= */
+function startLevel(i, reto){
+  S.level = i;
+  S.reto = reto === undefined ? !!LEVELS[i].reto : reto;
+  S.mode = 'play'; S.time = 0; S.lives = LIVES;
+  S.clips = []; S.done = 0; S.gap = null; S.play = null; S.cam = 0;
+  S.drag = null; S.C = null; S.msg = null; S.aviso = ''; S.avisoT = 0;
+  S.fall = null; S.steps = 0; S.errs = 0;
+  S.score = 0; S.combo = 0; S.bestCombo = 0; S.parts = []; S.pops = []; S.wipe = .6;
+  // bin de clips
+  S.bin = [];
+  for (var k = 0; k < lv().clips; k++)
+    S.bin.push({ name:CLIPNAMES[k % CLIPNAMES.length], hue:200 + k * 37, used:false });
+  nextClip();
+  hideOv(); cv.focus(); musStart();
+}
+
+function nextClip(){
+  if (S.done >= lv().clips) { startPlayback(); return; }
+  var clip = S.bin[S.done];
+  var ga = .18 + Math.random() * .22;           // franja verde
+  S.C = { clip:clip, idx:S.done, open:false, sp:0, dir:0, played:false, wentBack:false,
+          inM:null, outM:null, stopped:false, ga:ga, gb:ga + .26 + Math.random() * .12,
+          si:0, t:0, placed:false, bad:0 };
+}
+
+function stepTitle(){
+  var L = lv(), C = S.C;
+  return C ? (C.si + 1) + ' de ' + L.steps.length : '';
+}
+
+function checkStep(){
+  var C = S.C; if (!C) return;
+  var d = stepDef(); if (!d) return;
+  if (d.done(C)) {
+    S.steps++; C.t = 0;
+    S.combo++; if (S.combo > S.bestCombo) S.bestCombo = S.combo;
+    S.score += 10 * mult();
+    beep(600 + Math.min(8, S.combo) * 28, .07, 'square');
+    if (!S.gap) S.aviso = '';
+    C.si++;
+    if (C.si >= lv().steps.length) finishClip();
+  } else if (d.aviso) {
+    var a = d.aviso(C);
+    if (a && a !== S.aviso) aviso(a);
+  }
+}
+
+function mult(){ return Math.min(5, 1 + Math.floor(S.combo / 4)); }
+
+function clipLen(C){
+  if (C.inM !== null && C.outM !== null) return Math.round(60 + (C.outM - C.inM) * 220);
+  return 130;
+}
+
+function placeClip(x0, perfecto){
+  var C = S.C, len = clipLen(C);
+  S.clips.push({ x0:x0, x1:x0 + len, n:S.clips.length + 1, name:C.clip.name,
+                 hue:C.clip.hue, born:S.time });
+  C.placed = true;
+  S.bin[C.idx].used = true;
+  if (perfecto) {
+    var pts = 100 * mult();
+    S.score += pts;
+    pop(TL_X + x0 + len / 2 - S.cam, TRACK_Y - 26, '+' + pts, '#8fd0ff');
+    burst(TL_X + x0 + len / 2 - S.cam, TRACK_Y + 20, 26, ['#2d8ceb','#8fd0ff','#fff','#6b5fd0']);
+    beep(880, .13, 'triangle');
+  } else {
+    beep(420, .13, 'triangle');
+  }
+}
+
+function finishClip(){
+  var C = S.C;
+  if (lv().auto && !C.placed) {
+    // en los niveles de práctica de teclas, el clip se inserta solo
+    placeClip(lastEnd(), true);
+    aviso('Listo. Te inserté el clip en la línea de tiempo.');
+  }
+  S.done++; S.hop = .55;
+  if (S.done >= lv().clips) { startPlayback(); return; }
+  nextClip();
+}
+
+function startPlayback(){
+  S.C = null;
+  S.play = { cx:0, t:0 };
+  aviso('¡Secuencia lista! Mira cómo queda.');
+}
+
+function loseLife(){
+  if (!S.reto) return;
+  S.lives--; S.flash = .4; S.combo = 0;
+  beep(160, .25, 'sawtooth');
+  if (S.lives <= 0) gameOver();
+}
+
+function precision(){ var t = S.steps + S.errs; return t ? Math.round(100 * S.steps / t) : 100; }
+
+function gameOver(){
+  S.mode = 'over'; musStop(); saveRun();
+  showOv('<img class="pose" src="assets/triste.png" alt="">' +
+    '<h2>Se acabaron las vidas</h2><p>No pasa nada: vuelve a intentarlo, o pásate al <b>modo práctica</b>, que no tiene reloj.</p>' +
+    '<div class="stats"><div><b>' + S.score + '</b>puntos</div><div><b>' + S.clips.length + '</b>clips</div>' +
+    '<div><b>' + precision() + '%</b>precisión</div><div><b>x' + S.bestCombo + '</b>mejor racha</div></div>' +
+    '<button class="btn" id="bRe">Reintentar este nivel</button>' +
+    '<button class="btn sec" id="bPrac">Pasar a modo práctica</button>');
+  document.getElementById('bRe').onclick = function(){ startLevel(S.level, true); };
+  document.getElementById('bPrac').onclick = function(){ startLevel(S.level, false); };
+}
+
+function levelDone(){
+  S.mode = 'result'; musStop();
+  var nuevo = saveRun(), secs = Math.round(S.time);
+  var last = S.level >= LEVELS.length - 1;
+  var b = bestK(S.level, S.reto);
+  showOv('<img class="pose" src="assets/celebra.png" alt="">' +
+    '<h2>' + (last ? '¡Terminaste todos los niveles!' : '¡Nivel ' + (S.level + 1) + ' superado!') + '</h2>' +
+    '<p>' + lv().name + (S.reto ? ' · modo reto' : ' · modo práctica') + '</p>' +
+    '<div class="stats"><div><b>' + S.score + '</b>puntos</div><div><b>' + precision() + '%</b>precisión</div>' +
+    '<div><b>x' + S.bestCombo + '</b>mejor racha</div><div><b>' + secs + ' s</b>tiempo</div></div>' +
+    (nuevo ? '<p class="record">★ ¡Nuevo récord en este nivel!</p>'
+           : '<p class="record">Tu récord aquí: ' + (b ? b.score + ' pts · ' + b.prec + '%' : '—') + '</p>') +
+    (last ? '<button class="btn" id="bNext">Volver al menú</button>'
+          : '<button class="btn" id="bNext">Siguiente nivel</button>') +
+    '<button class="btn sec" id="bMenu2">Menú</button>');
+  document.getElementById('bNext').onclick = function(){
+    if (last) showMenu(); else startLevel(S.level + 1, LEVELS[S.level + 1].reto ? true : S.reto);
+  };
+  document.getElementById('bMenu2').onclick = showMenu;
+}
+
+/* ======================= Teclado ======================= */
+function onKey(code){
+  if (S.mode !== 'play' || S.play || S.fall) return;
+  S.keyFlash[code] = .18;
+  var C = S.C; if (!C) return;
+
+  if (code === 'Comma') {              // insertar: atajo real de Premiere
+    if (stepId() === 'arrastrar') { placeClip(lastEnd(), true); checkStep(); }
+    else aviso('La coma inserta el clip, pero todavía no toca ese paso.');
+    return;
+  }
+  if (!TRANSPORT[code]) return;
+  if (!C.open) { aviso('Primero abre el clip con doble clic en el panel Proyecto.'); return; }
+
+  switch (code) {
+    case 'KeyL':  C.dir = 1;  C.played = true; C.stopped = false; break;
+    case 'KeyK':  C.dir = 0;  C.stopped = true; break;
+    case 'KeyJ':  C.dir = -1; C.played = true; C.wentBack = true; C.stopped = false; break;
+    case 'Space': C.dir = C.dir ? 0 : 1; if (C.dir) { C.played = true; C.stopped = false; } else C.stopped = true; break;
+    case 'KeyI':  C.inM = C.sp;  if (C.outM !== null && C.outM <= C.sp) C.outM = null; break;
+    case 'KeyO':  C.outM = C.sp; C.dir = 0; break;
+  }
+  checkStep();
+}
+
+/* ======================= Puntero (arrastre) ======================= */
+function pt(e){
+  var r = cv.getBoundingClientRect();
+  return { x:(e.clientX - r.left) * (W / r.width), y:(e.clientY - r.top) * (H / r.height) };
+}
+function binCell(i){
+  var col = i % 3, row = Math.floor(i / 3);
+  return { x:PRJ.x + 10 + col * 92, y:PRJ.y + 30 + row * 86, w:84, h:76 };
+}
+function hitBin(p){
+  for (var i = 0; i < S.bin.length; i++) {
+    var c = binCell(i);
+    if (p.x >= c.x && p.x <= c.x + c.w && p.y >= c.y && p.y <= c.y + c.h) return i;
+  }
+  return -1;
+}
+function inMonitor(p){ return p.x >= VID.x && p.x <= VID.x + VID.w && p.y >= VID.y && p.y <= VID.y + VID.h; }
+function onTrack(p){ return p.y >= TRACK_Y - 14 && p.y <= TRACK_Y + TRACK_H + 14 && p.x >= TL_X - 10; }
+
+var lastClick = 0, lastClickIdx = -1;
+function onDown(e){
+  if (S.mode !== 'play' || S.play || S.fall) return;
+  var p = pt(e), C = S.C, id = stepId();
+  cv.focus();
+
+  // doble clic en el panel Proyecto
+  var bi = hitBin(p);
+  if (bi >= 0) {
+    var now = Date.now();
+    var dbl = (now - lastClick < 420 && lastClickIdx === bi) || e.detail >= 2;
+    lastClick = now; lastClickIdx = bi;
+    if (!dbl) { aviso('Haz doble clic para abrirlo en el monitor de origen.'); return; }
+    if (!C || bi !== C.idx) { aviso('Ese no toca ahora. Abre ' + (C ? C.clip.name : '') + '.'); return; }
+    if (id !== 'abrir') { aviso('Ese clip ya está abierto.'); return; }
+    C.open = true; beep(700, .08, 'triangle'); checkStep();
+    return;
+  }
+
+  // tomar el clip desde el monitor de origen
+  if (id === 'arrastrar' && C && C.open && !C.placed && inMonitor(p)) {
+    S.drag = { from:'monitor', len:clipLen(C), gx:p.x, gy:p.y, off:clipLen(C) / 2 };
+    cv.className = 'grabbing';
+    return;
+  }
+
+  // tomar un clip ya colocado (para cerrar el hueco o reacomodar)
+  if (onTrack(p)) {
+    for (var i = S.clips.length - 1; i >= 0; i--) {
+      var c = S.clips[i], sx = TL_X + c.x0 - S.cam, ex = TL_X + c.x1 - S.cam;
+      if (p.x >= sx && p.x <= ex) {
+        if (i !== S.clips.length - 1) { aviso('Por ahora solo puedes mover el último clip.'); return; }
+        S.drag = { from:'track', len:c.x1 - c.x0, gx:p.x, gy:p.y, off:p.x - sx, clip:c };
+        S.clips.splice(i, 1);
+        cv.className = 'grabbing';
+        return;
+      }
+    }
+  }
+}
+function onMove(e){
+  var p = pt(e);
+  if (S.drag) { S.drag.gx = p.x; S.drag.gy = p.y; return; }
+  if (S.mode !== 'play' || S.play) { cv.className = ''; return; }
+  var id = stepId(), C = S.C;
+  var grab = (id === 'arrastrar' && C && C.open && !C.placed && inMonitor(p)) ||
+             (hitBin(p) >= 0) ||
+             (onTrack(p) && S.clips.length && (function(){
+                var c = S.clips[S.clips.length - 1];
+                return p.x >= TL_X + c.x0 - S.cam && p.x <= TL_X + c.x1 - S.cam;
+              })());
+  cv.className = grab ? 'grab' : '';
+}
+function recalcGap(){
+  S.gap = null;
+  if (!S.clips.length) return;
+  var o = S.clips.slice().sort(function(a, b){ return a.x0 - b.x0; });
+  if (o[0].x0 > 1) { S.gap = { a:0, b:o[0].x0 }; return; }
+  for (var i = 1; i < o.length; i++)
+    if (o[i].x0 > o[i-1].x1 + 1) { S.gap = { a:o[i-1].x1, b:o[i].x0 }; return; }
+}
+
+function onUp(e){
+  if (!S.drag) return;
+  var p = pt(e), d = S.drag;
+  S.drag = null; cv.className = '';
+
+  function devolver(){
+    if (d.from === 'track')
+      S.clips.push({ x0:d.clip.x0, x1:d.clip.x0 + d.len, n:d.clip.n,
+                     name:d.clip.name, hue:d.clip.hue, born:d.clip.born });
+  }
+
+  var fin = lastEnd();
+  var x0 = Math.round(p.x - d.off - TL_X + S.cam);
+
+  if (!onTrack(p)) { devolver(); recalcGap(); aviso('Suéltalo sobre la pista V1.'); return; }
+
+  var pegado = Math.abs(x0 - fin) <= SNAP;
+  if (pegado) x0 = fin;
+  else if (x0 < fin) {                       // encimado sobre el clip anterior
+    S.errs++; S.combo = 0; S.shake = .25;
+    beep(240, .12, 'square');
+    devolver(); recalcGap();
+    aviso('No lo encimes sobre el anterior. Déjalo justo al final.');
+    if (d.from === 'monitor') loseLife();
+    return;
+  }
+  if (x0 < 0) x0 = 0;
+
+  if (d.from === 'track') {
+    S.clips.push({ x0:x0, x1:x0 + d.len, n:d.clip.n, name:d.clip.name, hue:d.clip.hue, born:d.clip.born });
+    if (pegado) beep(780, .1, 'triangle');
+  } else {
+    placeClip(x0, pegado);
+  }
+
+  recalcGap();
+  if (S.gap) {
+    if (d.from === 'monitor') S.errs++;
+    S.combo = 0; beep(240, .12, 'square');
+    aviso('Quedó un hueco entre los clips. Arrástralo hasta que se pegue.');
+  } else {
+    checkStep();
+  }
+}
+
+/* ======================= Actualización ======================= */
+function tick(dt){
+  if (S.mode !== 'play') return;
+  S.time += dt;
+  ['shake','flash','hop','wipe'].forEach(function(k){ if (S[k] > 0) S[k] = Math.max(0, S[k] - dt); });
+  if (S.avisoT > 0) { S.avisoT -= dt; if (S.avisoT <= 0) S.aviso = ''; }
+  for (var k in S.keyFlash) if (S.keyFlash[k] > 0) S.keyFlash[k] -= dt;
+
+  for (var i = S.parts.length - 1; i >= 0; i--) {
+    var p = S.parts[i]; p.t += dt;
+    if (p.t >= p.life) { S.parts.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 520 * dt;
+  }
+  for (var j = S.pops.length - 1; j >= 0; j--) { S.pops[j].t += dt; if (S.pops[j].t > .9) S.pops.splice(j, 1); }
+
+  // reproducción final de la secuencia
+  if (S.play) {
+    S.play.cx += 280 * dt;
+    var fin = lastEnd();
+    S.cam = Math.max(0, Math.min(fin - (W - TL_X - 30), S.play.cx - 360));
+    if (S.play.cx > fin + 40) { levelDone(); }
+    return;
+  }
+
+  var C = S.C; if (!C) return;
+  C.t += dt;
+  if (C.open) {
+    C.sp = Math.max(0, Math.min(1, C.sp + C.dir * lv().rate * dt));
+    if (C.sp <= 0 && C.dir < 0) C.dir = 0;
+    if (C.sp >= 1 && C.dir > 0) C.dir = 0;
+    checkStep();
+  }
+
+  // reloj solo en modo reto
+  if (S.reto && C.t > lv().win) {
+    C.t = 0; S.errs++; S.combo = 0;
+    aviso('Se acabó el tiempo de este paso.');
+    S.shake = .25; loseLife();
+  }
+
+  // cámara sigue el final de la secuencia
+  var target = Math.max(0, lastEnd() - (W - TL_X - 40));
+  S.cam += (target - S.cam) * Math.min(1, dt * 6);
+}
+
+/* ======================= Dibujo ======================= */
+function rr(x, y, w, h, r){ ctx.beginPath(); ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+function txt(s, x, y, color, size, align, bold){
+  ctx.fillStyle = color; ctx.font = (bold ? '600 ' : '') + (size || 13) + 'px "Segoe UI", system-ui, sans-serif';
+  ctx.textAlign = align || 'left'; ctx.fillText(s, x, y);
+}
+function panel(z, title){
+  ctx.fillStyle = '#2f2f2f'; ctx.fillRect(z.x, z.y, z.w, 22);
+  txt(title, z.x + 10, z.y + 15, '#e8e8e8', 12.5);
+  ctx.fillStyle = '#2d8ceb'; ctx.fillRect(z.x + 8, z.y + 20, Math.min(120, z.w - 16), 2);
+  ctx.fillStyle = '#1e1e1e'; ctx.fillRect(z.x, z.y + 22, z.w, z.h - 22);
+}
+function tc(sp){
+  var f = Math.floor(sp * CLIP_SECS * FPS), s = Math.floor(f / FPS), ff = f % FPS;
+  function p(n){ return (n < 10 ? '0' : '') + n; }
+  return '00:' + p(Math.floor(s / 60)) + ':' + p(s % 60) + ':' + p(ff);
+}
+
+function drawChar(x, fy, h, t, mode){
+  var im = mode === 'fall' ? IMG.cae : mode === 'jump' ? IMG.salta
+         : mode === 'idle' ? (IMG.corre2 || IMG.corre1) : runFrame(t);
+  var bob = mode === 'run' ? Math.abs(Math.sin(t * 18)) * 3 : 0;
+  var hop = S.hop > 0 ? Math.sin((S.hop / .55) * Math.PI) * 20 : 0;
+  var y = fy - bob - hop;
+  ctx.save();
+  if (mode === 'fall') { ctx.translate(x, y - h / 2); ctx.rotate(t * 5); ctx.translate(-x, -(y - h / 2)); }
+  if (im) {
+    var w = h * im.width / im.height;
+    ctx.drawImage(im, x - w / 2, y - h, w, h);
+  } else {
+    ctx.fillStyle = '#2d5fb0'; rr(x - h * .2, y - h * .72, h * .4, h * .46, 4); ctx.fill();
+    ctx.fillStyle = '#f2c9a0'; ctx.beginPath(); ctx.arc(x, y - h * .82, h * .17, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3a2a20'; ctx.beginPath(); ctx.arc(x, y - h * .88, h * .17, Math.PI, 0); ctx.fill();
+  }
+  ctx.restore();
+}
+
+/* --- Panel Proyecto --- */
+function drawBin(){
+  panel(PRJ, 'Proyecto: Practica_Runner');
+  var C = S.C;
+  S.bin.forEach(function(b, i){
+    var c = binCell(i), activo = C && i === C.idx && !b.used;
+    ctx.fillStyle = b.used ? '#242424' : '#2c2c2c';
+    rr(c.x, c.y, c.w, c.h, 5); ctx.fill();
+    // miniatura
+    ctx.globalAlpha = b.used ? .35 : 1;
+    ctx.fillStyle = 'hsl(' + b.hue + ',32%,30%)';
+    ctx.fillRect(c.x + 5, c.y + 5, c.w - 10, 42);
+    var im = IMG.corre2 || IMG.corre1;
+    if (im) { var hh = 34, ww = hh * im.width / im.height; ctx.drawImage(im, c.x + c.w / 2 - ww / 2, c.y + 11, ww, hh); }
+    ctx.globalAlpha = 1;
+    txt(b.name.length > 13 ? b.name.slice(0, 12) + '…' : b.name, c.x + c.w / 2, c.y + 62, b.used ? '#6a6a6a' : '#d8d8d8', 11, 'center');
+    if (b.used) txt('✓ en la secuencia', c.x + c.w / 2, c.y + 72, '#4f9a6a', 9, 'center');
+    if (activo) {
+      ctx.strokeStyle = '#2d8ceb'; ctx.lineWidth = 2 + (S.light ? 0 : Math.sin(S.time * 6) * .8);
+      rr(c.x + 1, c.y + 1, c.w - 2, c.h - 2, 5); ctx.stroke(); ctx.lineWidth = 1;
+      if (stepId() === 'abrir') txt('doble clic', c.x + c.w / 2, c.y + 72, '#8fd0ff', 9.5, 'center', true);
+    }
+  });
+}
+
+/* --- Monitor de origen --- */
+function drawMonitor(){
+  var C = S.C, sh = S.shake > 0 ? Math.sin(S.time * 80) * 4 : 0;
+  panel(MON, 'Monitor de origen');
+  var x = VID.x + sh;
+  if (!C || !C.open) {
+    ctx.fillStyle = '#141414'; ctx.fillRect(x, VID.y, VID.w, VID.h);
+    txt('Sin clip abierto', x + VID.w / 2, VID.y + VID.h / 2, '#5a5a5a', 14, 'center');
+    ctx.fillStyle = '#151515'; rr(SCR.x, SCR.y, SCR.w, SCR.h, 4); ctx.fill();
+    return;
+  }
+  var hue = C.clip.hue + C.sp * 40;
+  ctx.fillStyle = S.light ? '#2b3550' : 'hsl(' + hue + ',32%,24%)';
+  ctx.fillRect(x, VID.y, VID.w, VID.h);
+  var off = Math.sin(C.sp * 18) * 26;
+  drawChar(x + VID.w / 2 + off, VID.y + VID.h - 8, 108, S.time, C.dir ? 'run' : 'idle');
+  ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x, VID.y + VID.h - 20, VID.w, 20);
+  txt(tc(C.sp), x + 8, VID.y + VID.h - 6, '#8fd0ff', 12.5, 'left', true);
+  txt(C.dir > 0 ? '▶ L' : C.dir < 0 ? '◀ J' : '❚❚ K', x + VID.w - 8, VID.y + VID.h - 6, '#fff', 12.5, 'right', true);
+  ctx.strokeStyle = '#111'; ctx.strokeRect(x - .5, VID.y - .5, VID.w + 1, VID.h + 1);
+
+  // barra de scrub con la franja verde
+  var bx = SCR.x, bw = SCR.w, by = SCR.y;
+  ctx.fillStyle = '#151515'; rr(bx, by, bw, SCR.h, 4); ctx.fill();
+  ctx.fillStyle = 'rgba(47,163,107,.55)';
+  ctx.fillRect(bx + C.ga * bw, by, (C.gb - C.ga) * bw, SCR.h);
+  ctx.strokeStyle = '#3fcf87'; ctx.lineWidth = 1.5;
+  ctx.strokeRect(bx + C.ga * bw, by + .5, (C.gb - C.ga) * bw, SCR.h - 1); ctx.lineWidth = 1;
+  txt('parte que sirve', bx + (C.ga + C.gb) / 2 * bw, by + 14, '#d8ffe8', 10.5, 'center', true);
+  if (C.inM !== null && C.outM !== null && C.outM > C.inM) {
+    ctx.fillStyle = 'rgba(255,255,255,.3)';
+    ctx.fillRect(bx + C.inM * bw, by, (C.outM - C.inM) * bw, SCR.h);
+  }
+  if (C.inM !== null) { ctx.fillStyle = '#fff'; ctx.fillRect(bx + C.inM * bw - 1, by - 5, 3, SCR.h + 10); txt('I', bx + C.inM * bw - 9, by - 7, '#fff', 11, 'left', true); }
+  if (C.outM !== null) { ctx.fillStyle = '#fff'; ctx.fillRect(bx + C.outM * bw - 1, by - 5, 3, SCR.h + 10); txt('O', bx + C.outM * bw + 5, by - 7, '#fff', 11, 'left', true); }
+  var px = bx + C.sp * bw;
+  ctx.fillStyle = '#2d8ceb'; ctx.fillRect(px - 1, by - 6, 2, SCR.h + 12);
+  ctx.beginPath(); ctx.moveTo(px - 6, by - 9); ctx.lineTo(px + 6, by - 9); ctx.lineTo(px, by - 1); ctx.fill();
+
+  // pista: el clip listo para arrastrar
+  if (stepId() === 'arrastrar' && !S.drag && !C.placed) {
+    ctx.fillStyle = 'rgba(45,140,235,.18)'; ctx.fillRect(x, VID.y, VID.w, VID.h);
+    ctx.strokeStyle = '#2d8ceb'; ctx.setLineDash([7, 5]); ctx.lineWidth = 2;
+    ctx.strokeRect(x + 3, VID.y + 3, VID.w - 6, VID.h - 6);
+    ctx.setLineDash([]); ctx.lineWidth = 1;
+    txt('arrástrame a V1  ↓', x + VID.w / 2, VID.y + 24, '#fff', 15, 'center', true);
+  } else if (S.gap) {
+    ctx.fillStyle = 'rgba(0,0,0,.45)'; ctx.fillRect(x, VID.y, VID.w, VID.h);
+    txt('Cierra el hueco en V1 ↓', x + VID.w / 2, VID.y + VID.h / 2, '#ffd27a', 16, 'center', true);
+  }
+}
+
+/* --- HUD --- */
+function drawHud(){
+  panel(HUD, S.reto ? 'Modo reto' : 'Modo práctica');
+  var x = HUD.x + 12, y = HUD.y + 44;
+  txt('Nivel ' + (S.level + 1) + ' de ' + LEVELS.length, x, y, '#8fd0ff', 13, 'left', true);
+  // nombre del nivel en dos líneas si hace falta
+  var n = lv().name, max = 30;
+  if (n.length > max) {
+    var cut = n.lastIndexOf(' ', max);
+    txt(n.slice(0, cut), x, y + 20, '#e8e8e8', 14, 'left', true);
+    txt(n.slice(cut + 1), x, y + 38, '#e8e8e8', 14, 'left', true);
+    y += 18;
+  } else txt(n, x, y + 20, '#e8e8e8', 14, 'left', true);
+
+  txt('Clip ' + Math.min(S.done + 1, lv().clips) + ' de ' + lv().clips, x, y + 46, '#b8b8b8', 14);
+  txt(S.score + ' pts', x, y + 76, '#fff', 24, 'left', true);
+  if (S.combo > 1) txt('racha x' + S.combo + '  (x' + mult() + ')', x + 104, y + 76, '#f0b33c', 13.5, 'left', true);
+  var b = bestK(S.level, S.reto);
+  if (b) txt('Récord: ' + b.score + ' pts', x, y + 96, '#7f7f7f', 12);
+
+  if (S.reto) {
+    var hearts = ''; for (var i = 0; i < LIVES; i++) hearts += i < S.lives ? '♥ ' : '♡ ';
+    txt(hearts, x, y + 124, S.flash > 0 ? '#ff6b6b' : '#e84a4a', 21);
+    var C = S.C;
+    if (C) {
+      var f = Math.max(0, 1 - C.t / lv().win);
+      ctx.fillStyle = '#151515'; ctx.fillRect(x, y + 134, 200, 6);
+      ctx.fillStyle = f > .3 ? '#2d8ceb' : '#e84a4a'; ctx.fillRect(x, y + 134, 200 * f, 6);
+    }
+  } else {
+    txt('Sin reloj y sin vidas:', x, y + 122, '#7f7f7f', 12.5);
+    txt('tómate el tiempo que necesites.', x, y + 139, '#7f7f7f', 12.5);
+  }
+}
+
+/* --- Banda de instrucción --- */
+function drawBar(){
+  ctx.fillStyle = '#16181c'; ctx.fillRect(0, BAR.y, W, BAR.h);
+  ctx.fillStyle = S.aviso ? '#f0b33c' : '#2d8ceb'; ctx.fillRect(0, BAR.y, 6, BAR.h);
+  var C = S.C, d = stepDef();
+  if (S.play) {
+    txt('REPRODUCIENDO', 22, BAR.y + 21, '#8a8a8a', 12, 'left', true);
+    txt('Así quedó tu secuencia', 22, BAR.y + 43, '#fff', 25, 'left', true);
+    return;
+  }
+  if (!C || !d) return;
+  txt('PASO ' + stepTitle(), 22, BAR.y + 20, '#8a8a8a', 12.5, 'left', true);
+  txt(typeof d.short === 'function' ? d.short() : d.short, 22, BAR.y + 42, '#b8b8b8', 15, 'left', true);
+  var t = S.aviso || d.hint(C);
+  var col = S.aviso ? '#ffd27a' : '#ffffff';
+  // ajustar tamaño si el texto es largo
+  var size = t.length > 62 ? 19 : t.length > 52 ? 21 : 24;
+  txt(t, 196, BAR.y + 34, col, size, 'left', true);
+}
+
+/* --- Teclas --- */
+function drawKeys(){
+  var want = null, id = stepId();
+  if (id === 'reproducir') want = 'KeyL';
+  else if (id === 'parar' || id === 'pararZona' || id === 'pararZona2') want = 'KeyK';
+  else if (id === 'retroceder') want = 'KeyJ';
+  else if (id === 'marcarI') want = 'KeyI';
+  else if (id === 'marcarO') want = 'KeyO';
+
+  var keys = ['KeyJ','KeyK','KeyL','Space','KeyI','KeyO'];
+  var wd = { Space:110 }, gap = 12, total = 0;
+  keys.forEach(function(k){ total += (wd[k] || 56) + gap; });
+  var x = (W - (total - gap)) / 2, y = KEYS_Y;
+  keys.forEach(function(k){
+    var w = wd[k] || 56, on = k === want, fl = S.keyFlash[k] > 0;
+    ctx.fillStyle = on ? '#2d8ceb' : (fl ? '#5f5f5f' : '#3a3a3a');
+    if (on && !S.light) { ctx.shadowColor = '#2d8ceb'; ctx.shadowBlur = 12 + 6 * Math.sin(S.time * 8); }
+    rr(x, y, w, 30, 5); ctx.fill(); ctx.shadowBlur = 0;
+    txt(KEYNAME[k], x + w / 2, y + 21, on ? '#fff' : '#c0c0c0', 15, 'center', true);
+    txt(KEYDESC[k], x + w / 2, y + 42, on ? '#8fd0ff' : '#7a7a7a', 11.5, 'center');
+    x += w + gap;
+  });
+}
+
+/* --- Línea de tiempo --- */
+function drawTimeline(){
+  ctx.fillStyle = '#2f2f2f'; ctx.fillRect(0, TL_Y, W, 20);
+  txt('Secuencia 01', 12, TL_Y + 14, '#e8e8e8', 12.5);
+  ctx.fillStyle = '#2d8ceb'; ctx.fillRect(10, TL_Y + 18, 90, 2);
+  ctx.fillStyle = '#1b1b1b'; ctx.fillRect(0, TL_Y + 20, W, H - TL_Y - 20);
+
+  // regla
+  ctx.fillStyle = '#2a2a2a'; ctx.fillRect(TL_X, RULER_Y, W - TL_X, 20);
+  var start = Math.floor(S.cam / 50) * 50;
+  for (var wx = start; wx < S.cam + W; wx += 50) {
+    var sx = TL_X + wx - S.cam; if (sx < TL_X) continue;
+    var big = wx % 250 === 0;
+    ctx.fillStyle = '#6f6f6f'; ctx.fillRect(sx, big ? RULER_Y + 8 : RULER_Y + 13, 1, big ? 12 : 7);
+    if (big) txt('0:' + ((wx / 50 < 10 ? '0' : '') + Math.floor(wx / 50)), sx + 3, RULER_Y + 11, '#8f8f8f', 10);
+  }
+
+  // cabeceras de pista
+  ctx.fillStyle = '#262626'; ctx.fillRect(0, TRACK_Y, TL_X, TRACK_H); ctx.fillRect(0, A_Y, TL_X, A_H);
+  txt('V1', 14, TRACK_Y + 34, '#b0b0b0', 14, 'left', true);
+  txt('A1', 14, A_Y + 21, '#b0b0b0', 14, 'left', true);
+  ctx.fillStyle = '#202020'; ctx.fillRect(TL_X, TRACK_Y, W - TL_X, TRACK_H); ctx.fillRect(TL_X, A_Y, W - TL_X, A_H);
+
+  // zona de destino resaltada mientras se arrastra
+  if (S.drag) {
+    ctx.fillStyle = 'rgba(45,140,235,.1)'; ctx.fillRect(TL_X, TRACK_Y, W - TL_X, TRACK_H);
+    var fx = TL_X + lastEnd() - S.cam;
+    ctx.strokeStyle = '#3fcf87'; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(fx, TRACK_Y - 6); ctx.lineTo(fx, TRACK_Y + TRACK_H + 6); ctx.stroke();
+    ctx.setLineDash([]); ctx.lineWidth = 1;
+    txt('pégalo aquí', fx + 6, TRACK_Y - 10, '#3fcf87', 12, 'left', true);
+  }
+
+  ctx.save(); ctx.beginPath(); ctx.rect(TL_X, TL_Y + 20, W - TL_X, H - TL_Y - 20); ctx.clip();
+
+  // hueco marcado en rojo
+  if (S.gap) {
+    var gx = TL_X + S.gap.a - S.cam, gw = S.gap.b - S.gap.a;
+    ctx.fillStyle = 'rgba(232,74,74,.28)'; ctx.fillRect(gx, TRACK_Y, gw, TRACK_H);
+    ctx.strokeStyle = '#e84a4a'; ctx.setLineDash([5, 4]); ctx.strokeRect(gx + .5, TRACK_Y + .5, gw - 1, TRACK_H - 1); ctx.setLineDash([]);
+    txt('hueco', gx + gw / 2, TRACK_Y + 34, '#ff9b9b', 12, 'center', true);
+  }
+
+  S.clips.forEach(function(c){
+    var x0 = TL_X + c.x0 - S.cam, x1 = TL_X + c.x1 - S.cam;
+    if (x1 < TL_X || x0 > W) return;
+    var p = Math.min(1, (S.time - c.born) / .4), yo = (1 - p) * -150;
+    ctx.globalAlpha = .45 + .55 * p;
+    ctx.fillStyle = 'hsl(' + c.hue + ',38%,45%)';
+    ctx.fillRect(x0, TRACK_Y + 2 + yo, x1 - x0 - 2, TRACK_H - 4);
+    ctx.fillStyle = 'rgba(255,255,255,.2)'; ctx.fillRect(x0, TRACK_Y + 2 + yo, x1 - x0 - 2, 14);
+    ctx.save(); ctx.beginPath(); ctx.rect(x0, TRACK_Y + yo, x1 - x0 - 2, TRACK_H); ctx.clip();
+    txt('fx  ' + c.name + ' [V]', x0 + 6, TRACK_Y + 13 + yo, '#fff', 11);
+    ctx.restore();
+    ctx.fillStyle = 'hsl(' + c.hue + ',30%,32%)';
+    ctx.fillRect(x0, A_Y + yo * .25, x1 - x0 - 2, A_H);
+    ctx.globalAlpha = 1;
+  });
+  ctx.restore();
+
+  // fantasma del arrastre
+  if (S.drag) {
+    var d = S.drag, gx2 = d.gx - d.off, fin2 = TL_X + lastEnd() - S.cam;
+    var pegado = Math.abs(gx2 - fin2) <= SNAP;
+    if (pegado) gx2 = fin2;
+    ctx.globalAlpha = .85;
+    ctx.fillStyle = pegado ? '#3fcf87' : '#5a73d6';
+    ctx.fillRect(gx2, TRACK_Y + 2, d.len - 2, TRACK_H - 4);
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = '#fff'; ctx.strokeRect(gx2 + .5, TRACK_Y + 2.5, d.len - 3, TRACK_H - 5);
+  }
+
+  // cursor de reproducción
+  if (S.play) {
+    var cxp = TL_X + S.play.cx - S.cam;
+    ctx.fillStyle = '#2d8ceb'; ctx.fillRect(cxp - 1, RULER_Y, 2, H - RULER_Y);
+    ctx.beginPath(); ctx.moveTo(cxp - 8, RULER_Y); ctx.lineTo(cxp + 8, RULER_Y); ctx.lineTo(cxp, RULER_Y + 14); ctx.fill();
+    drawChar(cxp, TRACK_Y + 4, 46, S.time, 'run');
+  } else {
+    var cxs = TL_X + lastEnd() - S.cam;
+    ctx.fillStyle = '#2d8ceb'; ctx.fillRect(cxs - 1, RULER_Y, 2, H - RULER_Y);
+    ctx.beginPath(); ctx.moveTo(cxs - 8, RULER_Y); ctx.lineTo(cxs + 8, RULER_Y); ctx.lineTo(cxs, RULER_Y + 14); ctx.fill();
+    if (S.clips.length) drawChar(cxs - 22, TRACK_Y + 4, 46, S.time, S.hop > 0 ? 'jump' : 'idle');
+  }
+
+  S.parts.forEach(function(p){
+    ctx.globalAlpha = Math.max(0, 1 - p.t / p.life);
+    ctx.fillStyle = p.c; ctx.fillRect(p.x - p.r / 2, p.y - p.r / 2, p.r, p.r);
+  });
+  ctx.globalAlpha = 1;
+  S.pops.forEach(function(p){
+    ctx.globalAlpha = Math.max(0, 1 - p.t / .9);
+    txt(p.text, p.x, p.y - p.t * 46, p.c, 20, 'center', true);
+  });
+  ctx.globalAlpha = 1;
+}
+
+function render(){
+  ctx.fillStyle = '#232323'; ctx.fillRect(0, 0, W, H);
+  if (S.mode === 'menu') return;
+  drawBin(); drawMonitor(); drawHud(); drawBar(); drawKeys(); drawTimeline();
+  if (S.flash > 0 && !S.light) { ctx.fillStyle = 'rgba(232,74,74,' + S.flash * .3 + ')'; ctx.fillRect(0, 0, W, H); }
+  if (S.wipe > 0) {
+    var k = S.wipe / .6;
+    ctx.fillStyle = '#2d8ceb'; ctx.fillRect(0, 0, W * k, H);
+    ctx.fillStyle = 'rgba(20,20,20,' + k * .6 + ')'; ctx.fillRect(0, 0, W, H);
+  }
+}
+
+/* ======================= Menús ======================= */
+function showOv(html){ ov.innerHTML = '<div class="box">' + html + '</div>'; ov.className = ''; }
+function hideOv(){ ov.className = 'hide'; ov.innerHTML = ''; }
+
+var menuReto = false;
+function showMenu(){
+  S.mode = 'menu'; musStop();
+  var opts = LEVELS.map(function(l, i){
+    var b = bestK(i, menuReto);
+    return '<option value="' + i + '">Nivel ' + (i + 1) + ' — ' + l.name + (b ? '  (récord ' + b.score + ')' : '') + '</option>';
+  }).join('');
+  showOv('<h2>🎬 Premiere Runner</h2>' +
+    '<p>Practica el flujo real de Premiere Pro: abres el clip, lo recorres con <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd>, marcas <kbd>I</kbd> y <kbd>O</kbd>, y lo arrastras a la línea de tiempo pegado al anterior.</p>' +
+    '<div class="modes">' +
+      '<div class="mode' + (menuReto ? '' : ' on') + '" id="mPrac"><b>Modo práctica</b><span>Sin reloj y sin vidas. Equivócate las veces que haga falta. Recomendado para empezar.</span></div>' +
+      '<div class="mode' + (menuReto ? ' on' : '') + '" id="mReto"><b>Modo reto</b><span>Con reloj, 5 vidas y puntaje. Para cuando ya te sepas las teclas.</span></div>' +
+    '</div>' +
+    '<select id="selLv">' + opts + '</select><br>' +
+    '<button class="btn" id="bPlay">Empezar</button>' +
+    '<button class="btn sec" id="bHelp">¿Cómo se juega?</button>');
+  document.getElementById('mPrac').onclick = function(){ menuReto = false; showMenu(); };
+  document.getElementById('mReto').onclick = function(){ menuReto = true; showMenu(); };
+  document.getElementById('bPlay').onclick = function(){ startLevel(+document.getElementById('selLv').value, menuReto); };
+  document.getElementById('bHelp').onclick = showHelp;
+}
+
+function showHelp(){
+  showOv('<h2>Cómo se juega</h2>' +
+    '<div class="help">' +
+    '<b>1.</b> En el panel <b>Proyecto</b> (izquierda) haz <b>doble clic</b> en el clip que te marca el recuadro azul. Se abre en el monitor de origen.<br>' +
+    '<b>2.</b> Recórrelo con <kbd>L</kbd> adelante, <kbd>J</kbd> atrás y <kbd>K</kbd> para parar. <kbd>ESPACIO</kbd> alterna play y pausa.<br>' +
+    '<b>3.</b> La <b>franja verde</b> de la barra es la parte que sirve. Pulsa <kbd>I</kbd> al comienzo de esa franja y <kbd>O</kbd> al final.<br>' +
+    '<b>4.</b> <b>Arrastra</b> el clip desde el monitor hasta la pista <b>V1</b>, pegado al clip anterior. Se pega solo si lo sueltas cerca. También puedes pulsar <kbd>,</kbd> que es el atajo de insertar.<br>' +
+    '<b>5.</b> Si queda un <b>hueco</b> rojo entre dos clips, arrastra el último hacia la izquierda hasta que se pegue.' +
+    '</div>' +
+    '<p>En <b>modo práctica</b> no hay reloj ni vidas: puedes repetir cada paso.</p>' +
+    '<button class="btn" id="bBack">Volver</button>');
+  document.getElementById('bBack').onclick = showMenu;
+}
+
+function togglePause(){
+  if (S.mode === 'play') { S.mode = 'pause'; musStop();
+    showOv('<h2>Pausa</h2><button class="btn" id="bRes">Continuar</button>' +
+           '<button class="btn sec" id="bH">¿Cómo se juega?</button>' +
+           '<button class="btn sec" id="bMenu">Menú</button>');
+    document.getElementById('bRes').onclick = togglePause;
+    document.getElementById('bH').onclick = showHelp;
+    document.getElementById('bMenu').onclick = showMenu; }
+  else if (S.mode === 'pause') { S.mode = 'play'; hideOv(); cv.focus(); musStart(); }
+}
+
+/* ======================= Entrada y bucle ======================= */
+window.addEventListener('keydown', function(e){
+  if (e.repeat) return;
+  if (e.code === 'Escape') { togglePause(); return; }
+  if (S.mode === 'menu') return;
+  if (TRANSPORT[e.code] || e.code === 'Comma') { e.preventDefault(); onKey(e.code); }
+});
+cv.addEventListener('pointerdown', onDown);
+window.addEventListener('pointermove', onMove);
+window.addEventListener('pointerup', onUp);
+cv.addEventListener('dblclick', function(e){ e.preventDefault(); });
+document.addEventListener('visibilitychange', function(){ if (document.hidden && S.mode === 'play') togglePause(); });
+
+function setRes(){
+  var s = S.light ? .67 : 1;
+  cv.width = W * s; cv.height = H * s; ctx.setTransform(s, 0, 0, s, 0, 0);
+}
+document.getElementById('optLight').addEventListener('change', function(e){ S.light = e.target.checked; setRes(); });
+document.getElementById('optSound').addEventListener('change', function(e){ S.sound = e.target.checked; });
+document.getElementById('optMusic').addEventListener('change', function(e){ S.music = e.target.checked; musVol(); });
+
+var last = 0;
+function frame(ts){
+  var dt = Math.min(.05, (ts - last) / 1000 || 0); last = ts;
+  tick(dt); render();
+  requestAnimationFrame(frame);
+}
+
+window.__juego = {
+  S:S, LEVELS:LEVELS, STEPS:STEPS, startLevel:startLevel, key:onKey, tick:tick, render:render,
+  stepId:stepId, bestK:bestK,
+  audio:function(){ return { ctx:actx ? actx.state : null, music:!!MUS.timer, step:MUS.step }; },
+  binCell:binCell, zonas:{ PRJ:PRJ, VID:VID, SCR:SCR, TL_X:TL_X, TRACK_Y:TRACK_Y, TRACK_H:TRACK_H }
+};
+setRes(); showMenu(); requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
