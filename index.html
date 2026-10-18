@@ -42,6 +42,10 @@
   .stats div { background:#1d1d1d; border-radius:7px; padding:10px 4px; font-size:12px; }
   .stats b { display:block; font-size:19px; color:#fff; }
   .record { color:#f0b33c; font-size:13.5px; margin-top:8px; }
+  table.cred { width:100%; border-collapse:collapse; font-size:12.5px; }
+  table.cred th { text-align:left; color:#8fd0ff; font-weight:600; padding:3px 6px; border-bottom:1px solid #3a3a3a; }
+  table.cred td { padding:4px 6px; border-bottom:1px solid #262626; color:#c8c8c8; vertical-align:top; }
+  table.cred a { color:#b9d9f5; }
   .help { text-align:left; font-size:14px; line-height:1.7; background:#1d1d1d; border-radius:7px; padding:12px 16px; margin:12px 0; }
 </style>
 </head>
@@ -302,7 +306,44 @@ function musStart(){
 function musStop(){ if (MUS.timer) { clearInterval(MUS.timer); MUS.timer = null; } }
 function musVol(){ if (MUS.gain) MUS.gain.gain.value = S.music ? .45 : 0; }
 
-/* --- Ambiente por clip: ruido filtrado + eventos sueltos, todo sintetizado --- */
+/* --- Audio real descargado. Si falta un archivo, se usa la síntesis de respaldo. --- */
+var SND = {}, SNDEST = {};
+function cargarSonido(clave, archivo){
+  var a = ac(); if (!a || SND[clave] || SNDEST[clave]) return;
+  SNDEST[clave] = 'cargando';
+  fetch('assets/audio/' + archivo + '.mp3')
+    .then(function(r){ if (!r.ok) throw new Error('404'); return r.arrayBuffer(); })
+    .then(function(b){ return a.decodeAudioData(b); })
+    .then(function(buf){ SND[clave] = buf; SNDEST[clave] = 'ok'; })
+    .catch(function(){ SNDEST[clave] = 'falta'; });
+}
+function precargarAudio(){
+  if (!ac()) return;
+  Object.keys(AMB).forEach(function(k){ cargarSonido(k, k); });
+  cargarSonido('doc', 'musica-documental');
+}
+
+/* --- Música del documental: suena en la reproducción final de la secuencia --- */
+var DOC = { src:null, gain:null };
+function docStart(){
+  if (DOC.src || !S.music) return;
+  var a = ac(); if (!a || !SND.doc) return;
+  var src = a.createBufferSource(); src.buffer = SND.doc; src.loop = false;
+  var g = a.createGain(); g.gain.value = .0001;
+  src.connect(g); g.connect(a.destination); src.start();
+  g.gain.linearRampToValueAtTime(.5, a.currentTime + .9);
+  DOC = { src:src, gain:g };
+}
+function docStop(){
+  if (!DOC.src) return;
+  var a = actx, src = DOC.src, g = DOC.gain;
+  try { if (a) g.gain.linearRampToValueAtTime(.0001, a.currentTime + .6); } catch(e){}
+  setTimeout(function(){ try { src.stop(); } catch(e){} }, 800);
+  DOC = { src:null, gain:null };
+}
+function docVol(){ if (DOC.gain) try { DOC.gain.gain.value = S.music ? .5 : 0; } catch(e){} }
+
+/* --- Ambiente por clip: grabación real si está, si no ruido filtrado sintetizado --- */
 var AMBP = { id:null, src:null, gain:null, timer:null };
 function ambStop(){
   if (AMBP.timer) { clearInterval(AMBP.timer); AMBP.timer = null; }
@@ -353,6 +394,16 @@ function ambStart(key){
   if (!S.sound) return;
   var a = ac(), p = AMB[key];
   if (!a || !p) return;
+
+  if (SND[key]) {                                    // grabación real
+    var rs = a.createBufferSource(); rs.buffer = SND[key]; rs.loop = true;
+    var rg = a.createGain(); rg.gain.value = .0001;
+    rs.connect(rg); rg.connect(a.destination); rs.start();
+    rg.gain.linearRampToValueAtTime(.75, a.currentTime + .35);
+    AMBP = { id:key, src:rs, gain:rg, timer:null };
+    return;
+  }
+
   var n = Math.floor(a.sampleRate * 2), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
   for (var i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
   var src = a.createBufferSource(); src.buffer = buf; src.loop = true;
@@ -394,7 +445,7 @@ function startLevel(i, reto){
                  amb:CLIPDEFS[k % CLIPDEFS.length].amb, hue:CLIPDEFS[k % CLIPDEFS.length].hue, used:false });
   if (lv().reorder) { prepararDesorden(); hideOv(); cv.focus(); musStart(); return; }
   nextClip();
-  hideOv(); cv.focus(); musStart();
+  hideOv(); cv.focus(); musStart(); precargarAudio();
 }
 
 function relayout(){
@@ -494,6 +545,7 @@ function finishClip(){
 function startPlayback(){
   S.C = null;
   S.play = { cx:0, t:0 };
+  if (SND.doc) { musStop(); docStart(); }
   aviso('¡Secuencia lista! Mira cómo queda.');
 }
 
@@ -507,7 +559,7 @@ function loseLife(){
 function precision(){ var t = S.steps + S.errs; return t ? Math.round(100 * S.steps / t) : 100; }
 
 function gameOver(){
-  S.mode = 'over'; musStop(); ambStop(); saveRun();
+  S.mode = 'over'; musStop(); ambStop(); docStop(); saveRun();
   showOv('<img class="pose" src="assets/triste.png" alt="">' +
     '<h2>Se acabaron las vidas</h2><p>No pasa nada: vuelve a intentarlo, o pásate al <b>modo práctica</b>, que no tiene reloj.</p>' +
     '<div class="stats"><div><b>' + S.score + '</b>puntos</div><div><b>' + S.clips.length + '</b>clips</div>' +
@@ -519,7 +571,7 @@ function gameOver(){
 }
 
 function levelDone(){
-  S.mode = 'result'; musStop(); ambStop();
+  S.mode = 'result'; musStop(); ambStop(); docStop();
   var nuevo = saveRun(), secs = Math.round(S.time);
   var last = S.level >= LEVELS.length - 1;
   var b = bestK(S.level, S.reto);
@@ -732,7 +784,7 @@ function tick(dt){
 
   // reproducción final de la secuencia
   if (S.play) {
-    S.play.cx += 280 * dt;
+    S.play.cx += 95 * dt;
     var act = null;
     S.clips.forEach(function(c){ if (S.play.cx >= c.x0 && S.play.cx < c.x1) act = c; });
     ambStart(act ? act.amb : null);
@@ -1132,7 +1184,7 @@ function hideOv(){ ov.className = 'hide'; ov.innerHTML = ''; }
 
 var menuReto = false;
 function showMenu(){
-  S.mode = 'menu'; musStop(); ambStop();
+  S.mode = 'menu'; musStop(); ambStop(); docStop();
   var opts = LEVELS.map(function(l, i){
     var b = bestK(i, menuReto);
     return '<option value="' + i + '">Nivel ' + (i + 1) + ' — ' + l.name + (b ? '  (récord ' + b.score + ')' : '') + '</option>';
@@ -1145,11 +1197,25 @@ function showMenu(){
     '</div>' +
     '<select id="selLv">' + opts + '</select><br>' +
     '<button class="btn" id="bPlay">Empezar</button>' +
-    '<button class="btn sec" id="bHelp">¿Cómo se juega?</button>');
+    '<button class="btn sec" id="bHelp">¿Cómo se juega?</button>' +
+    '<button class="btn sec" id="bCred">Créditos de audio</button>');
+  document.getElementById('bCred').onclick = showCreditos;
   document.getElementById('mPrac').onclick = function(){ menuReto = false; showMenu(); };
   document.getElementById('mReto').onclick = function(){ menuReto = true; showMenu(); };
   document.getElementById('bPlay').onclick = function(){ startLevel(+document.getElementById('selLv').value, menuReto); };
   document.getElementById('bHelp').onclick = showHelp;
+}
+
+function showCreditos(){
+  showOv('<h2>Créditos de audio</h2>' +
+    '<p>Todos los sonidos son de <b>Freesound</b> y están en <b>CC0</b> (dominio público): se pueden usar libremente, incluso comercialmente, sin pedir permiso. Igual va el crédito a quien los grabó.</p>' +
+    '<div class="help" style="max-height:280px;overflow:auto"><table class="cred">' +
+    '<tr><th>Clip</th><th>Sonido</th><th>Autor</th></tr>' +
+    '<tr><td>Entrevista</td><td><a href="https://freesound.org/people/simonjeffery13/sounds/750799/" target="_blank" rel="noopener">Empty Office Ambience</a></td><td>simonjeffery13</td></tr><tr><td>Plaza Grande</td><td><a href="https://freesound.org/people/barryshamir/sounds/757837/" target="_blank" rel="noopener">Square in Berlin with church bells in the back</a></td><td>barryshamir</td></tr><tr><td>Teleferico</td><td><a href="https://freesound.org/people/soundandmelodies/sounds/643506/" target="_blank" rel="noopener">AMB-Inside Kagbeni_near trees,Nepal.wav</a></td><td>soundandmelodies</td></tr><tr><td>Mitad del Mundo</td><td><a href="https://freesound.org/people/ValentinPetiteau/sounds/563547/" target="_blank" rel="noopener">Ambience - European city park - morning - bird</a></td><td>ValentinPetiteau</td></tr><tr><td>Mercado</td><td><a href="https://freesound.org/people/khenshom/sounds/623605/" target="_blank" rel="noopener">Weekend Fair in Chapultepec Park Mexico City</a></td><td>khenshom</td></tr><tr><td>Atardecer</td><td><a href="https://freesound.org/people/RyanKingArt/sounds/746366/" target="_blank" rel="noopener">Southern Summer Evening Ambience with Crickets</a></td><td>RyanKingArt</td></tr><tr><td>Taller</td><td><a href="https://freesound.org/people/SduggySounds/sounds/725716/" target="_blank" rel="noopener">Office Typing/Rolling Chair/Distant Chatter</a></td><td>SduggySounds</td></tr><tr><td>La Ronda</td><td><a href="https://freesound.org/people/fakeplasticman/sounds/442653/" target="_blank" rel="noopener">A crowd of fans singing La Mamba to a guitar.w</a></td><td>fakeplasticman</td></tr><tr><td>Musica del documental</td><td><a href="https://freesound.org/people/Seth_Makes_Sounds/sounds/814843/" target="_blank" rel="noopener">Wonders [cinematic background music][107 bpm]</a></td><td>Seth_Makes_Sounds</td></tr>' +
+    '</table></div>' +
+    '<p style="font-size:13px;color:#9a9a9a">La música de la interfaz está generada dentro del juego con Web Audio.</p>' +
+    '<button class="btn" id="bVolver2">Volver</button>');
+  document.getElementById('bVolver2').onclick = showMenu;
 }
 
 function showHelp(){
@@ -1169,7 +1235,7 @@ function showHelp(){
 }
 
 function togglePause(){
-  if (S.mode === 'play') { S.mode = 'pause'; musStop(); ambStop();
+  if (S.mode === 'play') { S.mode = 'pause'; musStop(); ambStop(); docStop();
     showOv('<h2>Pausa</h2><button class="btn" id="bRes">Continuar</button>' +
            '<button class="btn sec" id="bH">¿Cómo se juega?</button>' +
            '<button class="btn sec" id="bMenu">Menú</button>');
@@ -1198,7 +1264,7 @@ function setRes(){
 }
 document.getElementById('optLight').addEventListener('change', function(e){ S.light = e.target.checked; setRes(); });
 document.getElementById('optSound').addEventListener('change', function(e){ S.sound = e.target.checked; if (!S.sound) ambStop(); });
-document.getElementById('optMusic').addEventListener('change', function(e){ S.music = e.target.checked; musVol(); });
+document.getElementById('optMusic').addEventListener('change', function(e){ S.music = e.target.checked; musVol(); docVol(); });
 
 var last = 0;
 function frame(ts){
@@ -1210,7 +1276,8 @@ function frame(ts){
 window.__juego = {
   S:S, LEVELS:LEVELS, STEPS:STEPS, startLevel:startLevel, key:onKey, tick:tick, render:render,
   stepId:stepId, bestK:bestK,
-  audio:function(){ return { ctx:actx ? actx.state : null, music:!!MUS.timer, step:MUS.step }; },
+  audio:function(){ return { ctx:actx ? actx.state : null, music:!!MUS.timer, step:MUS.step,
+    archivos:Object.keys(SND).sort(), estado:SNDEST, doc:!!DOC.src, amb:AMBP.id }; },
   binCell:binCell, zonas:{ PRJ:PRJ, VID:VID, SCR:SCR, TL_X:TL_X, TRACK_Y:TRACK_Y, TRACK_H:TRACK_H }
 };
 setRes(); showMenu(); requestAnimationFrame(frame);
