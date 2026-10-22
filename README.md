@@ -10,7 +10,7 @@ Hecho para las capacitaciones de **Adobe Cursos Quito**.
 - Un solo archivo HTML, sin dependencias ni instalación.
 - Cada clip tiene su propia imagen y su propio **ambiente sonoro real**, que suena
   al reproducirlo en el monitor y al pasar el cabezal por encima en la línea de tiempo.
-- Nueve niveles, incluido uno de **reordenar la secuencia** arrastrando los clips, otro de **marcar el ritmo con la tecla M** y otro de **cortar sobre esos marcadores** (edición con ritmo).
+- Diez niveles, incluido uno de **reordenar la secuencia** arrastrando los clips, otro de **marcar el ritmo con la tecla M** otro de **cortar sobre esos marcadores** y un último de **ordenar los cortes según un guion** (edición con ritmo). En todos se practica el transporte con **J K L**.
 - **Modo práctica** sin reloj ni vidas, pensado para quien recién empieza.
 - **Modo reto** con tiempo, vidas y puntaje.
 - Funciona en cualquier navegador de escritorio.

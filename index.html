@@ -167,7 +167,8 @@ var LEVELS = [
   { name:'Flujo completo',                steps:['abrir','reproducir','marcarI','marcarO','arrastrar'],      clips:5, auto:false, rate:.30, win:10 },
   { name:'Reto: flujo completo con reloj',steps:['abrir','reproducir','marcarI','marcarO','arrastrar'],      clips:6, auto:false, rate:.42, win:6, reto:true },
   { name:'Marcadores al ritmo (tecla M)', steps:[],                                                          clips:0, auto:false, rate:.30, win:14, rhythm:'marcar' },
-  { name:'Cortar al ritmo con los marcadores', steps:[],                                                     clips:0, auto:false, rate:.30, win:14, rhythm:'cortar' }
+  { name:'Cortar al ritmo con los marcadores', steps:[],                                                     clips:0, auto:false, rate:.30, win:14, rhythm:'cortar' },
+  { name:'Ordenar los cortes según el guion', steps:[],                                                     clips:0, auto:false, rate:.30, win:14, rhythm:'ordenar' }
 ];
 
 var CLIPDEFS = [
@@ -1010,7 +1011,7 @@ function drawHud(){
     var ok = S.clips.filter(function(c, i){ return c.key === i; }).length;
     txt('En su sitio: ' + ok + ' de ' + lv().clips, x, y + 46, '#b8b8b8', 14);
   } else if (lv().rhythm && R) {
-    txt(R.cal ? 'Calibración' : R.mode === 'marcar' ? 'Golpes: ' + R.hits + ' de ' + R.beats.length + '  (mín. ' + R.need + ')'
+    txt(R.mode === 'ordenar' ? 'En su sitio: ' + rEnSitio() + ' de 8' : R.cal ? 'Calibración' : R.mode === 'marcar' ? 'Golpes: ' + R.hits + ' de ' + R.beats.length + '  (mín. ' + R.need + ')'
                                                     : 'Cortes: ' + R.hits + ' de ' + R.beats.length, x, y + 46, '#b8b8b8', 14);
   } else txt('Clip ' + Math.min(S.done + 1, lv().clips) + ' de ' + lv().clips, x, y + 46, '#b8b8b8', 14);
   txt(S.score + ' pts', x, y + 76, '#fff', 24, 'left', true);
@@ -1203,7 +1204,7 @@ function render(){
 // La canción es assets/audio/ritmo.mp3. El pulso (BPM) y el instante del primer golpe (BEAT0)
 // se midieron a partir del audio. Si al escucharla el pulso no coincide, ajusta estos dos valores
 // (o abre el juego con ?calibrar al final de la dirección para medirlos tocando la M).
-var RIT = { bpm:81, beat0:12.33, tolPerfect:.06, tolGood:.12, tolCut:.06,
+var RIT = { bpm:81, beat0:12.33, tolPerfect:.06, tolGood:.12, tolCut:.09,
             clic:/[?&]clic/.test(location.search), cal:/[?&]calibrar/.test(location.search) };
 var BP = 60 / RIT.bpm;
 var RT = { ruler:354, v:378, vh:50, a:432, ah:56, empty:494 };
@@ -1218,15 +1219,25 @@ function rClamp(t){ return Math.max(R.a, Math.min(R.b, t)); }
 
 function prepararRitmo(){
   var m = lv().rhythm, cal = RIT.cal && m === 'marcar';
-  var n = m === 'marcar' ? 16 : 8, beats = [];
-  for (var i = 0; i < n; i++) beats.push(RIT.beat0 + i * BP);
+  var n = m === 'marcar' ? 16 : 8, beats = [], i;
+  for (i = 0; i < n; i++) beats.push(RIT.beat0 + i * BP);
   var a = RIT.beat0 - (m === 'marcar' ? 1.5 : 1.0), b = beats[n - 1] + (m === 'marcar' ? .9 : 1.5);
   if (cal) { a = 0; b = 64.9; beats = []; }
+  if (m === 'ordenar') {                                // 8 trozos de un tiempo cada uno; las marcas son los cortes
+    n = 8; beats = []; a = RIT.beat0; b = RIT.beat0 + 8 * BP;
+    for (i = 1; i < 8; i++) beats.push(RIT.beat0 + i * BP);
+  }
   R = { mode:m, cal:cal, a:a, b:b, beats:beats, need:m === 'marcar' ? 11 : n,
-        pos:a, playing:false, src:null, ct0:0, pos0:0, pn0:0, lastBeat:0,
+        pos:a, playing:false, dir:0, rate:1, rev:null, src:null, ct0:0, pos0:0, pn0:0, lastBeat:0,
         sel:m === 'marcar' && !cal ? 'audio' : null, markers:[], matched:{}, cutDone:{}, cuts:[],
-        tool:'sel', hits:0, final:false, drag:false, peaks:null, taps:[] };
-  if (m === 'cortar') beats.forEach(function(t){ R.markers.push({ t:t, kind:'seq', ok:'pre' }); });
+        tool:'sel', hits:0, final:false, drag:false, peaks:null, taps:[], order:[], dp:null };
+  if (m === 'cortar' || m === 'ordenar') beats.forEach(function(t, k){ R.markers.push({ t:t, kind:'seq', ok:'pre', n:k + 1 }); });
+  if (m === 'ordenar') {
+    var j, mez = [0, 1, 2, 3, 4, 5, 6, 7];
+    do { for (j = 7; j > 0; j--) { var q = Math.floor(Math.random() * (j + 1)), tmp = mez[j]; mez[j] = mez[q]; mez[q] = tmp; } }
+    while (mez.every(function(v, k){ return v === k; }));
+    R.order = mez;
+  }
   R.pps = (W - TL_X - 16) / (R.b - R.a);
   cv.style.cursor = '';
   cargarSonido('ritmo', 'ritmo');
@@ -1236,36 +1247,57 @@ function prepararRitmo(){
 function rPos(){
   if (!R.playing) return R.pos;
   var t = R.src && actx ? actx.currentTime - R.ct0 - rLat() : (performance.now() - R.pn0) / 1000;
-  return R.pos0 + Math.max(0, t);
+  return R.pos0 + R.dir * R.rate * Math.max(0, t);
 }
-function rPlay(){
-  if (!R || R.playing) return;
+function rRev(){                                       // copia invertida del tramo, para poder oír el retroceso con J
+  if (R.rev || !SND.ritmo) return R.rev;
+  var buf = SND.ritmo, a = ac(), sr = buf.sampleRate, i0 = Math.floor(R.a * sr), n = Math.floor((R.b - R.a) * sr);
+  var rb = a.createBuffer(buf.numberOfChannels, n, sr);
+  for (var c = 0; c < buf.numberOfChannels; c++) {
+    var src = buf.getChannelData(c), dst = rb.getChannelData(c);
+    for (var i = 0; i < n; i++) dst[i] = src[i0 + n - 1 - i] || 0;
+  }
+  R.rev = rb; return rb;
+}
+function rPlay(dir, rate){
+  if (!R) return;
+  dir = dir || 1; rate = rate || 1;
+  if (R.playing) rPause();
   if (SNDEST.ritmo === 'cargando' || (!SND.ritmo && SNDEST.ritmo !== 'falta')) { aviso('Cargando la canción… espera un segundo.'); return; }
-  if (R.pos >= R.b - .05) R.pos = R.a;
+  if (dir > 0 && R.pos >= R.b - .05) R.pos = R.a;
+  if (dir < 0 && R.pos <= R.a + .05) { aviso('Ya estás al comienzo.'); return; }
   var a = ac();
-  R.pos0 = R.pos; R.pn0 = performance.now(); R.src = null;
+  R.dir = dir; R.rate = rate; R.pos0 = R.pos; R.pn0 = performance.now(); R.src = null;
   if (a && SND.ritmo) {
-    var src = a.createBufferSource(), g = a.createGain();
-    src.buffer = SND.ritmo; g.gain.value = .9;
+    var src = a.createBufferSource(), g = a.createGain(), now = a.currentTime;
+    var quedan = dir > 0 ? R.b - R.pos : R.pos - R.a;      // segundos de canción que faltan en esa dirección
+    src.buffer = dir > 0 ? SND.ritmo : rRev();
+    src.playbackRate.value = rate;
+    g.gain.setValueAtTime(.9, now);
+    g.gain.setValueAtTime(.9, now + Math.max(0, quedan / rate - .7));
+    g.gain.linearRampToValueAtTime(0, now + quedan / rate);   // el final no corta de golpe
     src.connect(g); g.connect(a.destination);
-    src.start(0, R.pos);
-    R.src = src; R.ct0 = a.currentTime;
+    src.start(0, dir > 0 ? R.pos : R.b - R.pos);
+    src.stop(now + quedan / rate + .05);
+    R.src = src; R.ct0 = now;
+    var rearmar = function(){ if (a.state !== 'running') a.resume(); };
+    rearmar();
   } else aviso('No se encontró la canción (assets/audio/ritmo.mp3). Sigue sin sonido.');
   R.lastBeat = Math.floor((R.pos - RIT.beat0) / BP);
   R.playing = true;
 }
 function rPause(){
   if (!R || !R.playing) return;
-  R.pos = Math.min(R.b, rPos());
+  R.pos = rClamp(rPos());
   R.playing = false;
   if (R.src) { try { R.src.stop(); } catch(e){} R.src = null; }
 }
 function rHalt(){ if (R) rPause(); }
 function rSeek(t){
-  var was = R.playing;
+  var was = R.playing, d = R.dir, r = R.rate;
   if (was) rPause();
   R.pos = rClamp(t);
-  if (was) rPlay();
+  if (was) rPlay(d, r);
 }
 function rSnap(t){                                    // los marcadores atraen al cabezal, como el imán de Premiere
   var best = t, bd = 9 / R.pps;
@@ -1302,7 +1334,7 @@ function rMark(){
   var nb = rNearest(t), m = { t:t, kind:'seq', ok:'miss' };
   if (nb.d <= RIT.tolGood && !R.matched[nb.i]) {
     R.matched[nb.i] = true; R.hits++;
-    m.ok = rAcierto(t, nb.d, RIT.tolPerfect, '¡justo!') ? 'perfect' : 'good';
+    m.ok = rAcierto(t, nb.d, RIT.tolPerfect, '¡justo!') ? 'perfect' : 'good'; m.n = nb.i + 1;
   } else {
     var bt = R.beats[nb.i];
     pop(rx(t), RT.ruler - 6, nb.d <= RIT.tolGood ? 'repetido' : t < bt ? 'temprano' : 'tarde', C_MISS);
@@ -1329,7 +1361,7 @@ function rFinal(){
   R.final = true; S.score += 200;
   S.combo++; if (S.combo > S.bestCombo) S.bestCombo = S.combo;
   aviso('¡Todos los cortes al ritmo! Mira cómo queda.');
-  rPause(); R.pos = R.a; R.final = false; rPlay(); R.final = true;
+  rPause(); R.pos = R.a; rPlay(1, 1);
 }
 function rGoMarker(dir){
   var p = rPos(), tgt = null, i;
@@ -1379,7 +1411,8 @@ function tickRitmo(dt){
     var bi = Math.floor((p - RIT.beat0) / BP);
     if (bi !== R.lastBeat) { if (bi > R.lastBeat && p >= RIT.beat0 - .05) beep(1300, .05, 'square', .09); R.lastBeat = bi; }
   }
-  if (p >= R.b) {
+  if (R.dir < 0 && p <= R.a) { rPause(); R.pos = R.a; return; }
+  if (R.dir > 0 && p >= R.b) {
     var fin = R.final;
     rPause(); R.pos = R.b;
     if (fin) levelDone(); else rEvaluar();
@@ -1399,9 +1432,14 @@ function rKey(e){
   if (c === 'KeyM' && mod && e.shiftKey) { if (R.mode === 'cortar') rGoMarker(-1); return true; }
   if (c === 'KeyK' && mod) { S.keyFlash.CtrlK = .18; rCut(rPos()); return true; }
   if (R.final) return c === 'Space';
-  if (c === 'Space') { if (R.playing) rPause(); else rPlay(); S.keyFlash.Space = .18; return true; }
-  if (c === 'KeyL') { rPlay(); return true; }
-  if (c === 'KeyK') { rPause(); return true; }
+  if (c === 'Space') { if (R.playing) rPause(); else rPlay(1, 1); S.keyFlash.Space = .18; return true; }
+  if (c === 'KeyL' || c === 'KeyJ') {                 // J atrás, L adelante; pulsar otra vez acelera (1x, 2x, 4x)
+    var d = c === 'KeyL' ? 1 : -1;
+    S.keyFlash[c === 'KeyL' ? 'L' : 'J'] = .18;
+    rPlay(d, R.playing && R.dir === d ? Math.min(4, R.rate * 2) : 1);
+    return true;
+  }
+  if (c === 'KeyK') { S.keyFlash.K = .18; rPause(); return true; }
   if (c === 'KeyC' && R.mode === 'cortar') { R.tool = 'razor'; cv.style.cursor = 'crosshair'; S.keyFlash.C = .18; return true; }
   if (c === 'KeyV' && R.mode === 'cortar') { R.tool = 'sel'; cv.style.cursor = ''; S.keyFlash.V = .18; return true; }
   if (c === 'ArrowLeft' || c === 'ArrowRight') {
@@ -1418,6 +1456,7 @@ function rDown(e){
   if (p.y <= RT.ruler + 22) {                         // regla: mover el cabezal
     R.drag = true; rSeek(rSnap(rt(p.x))); return;
   }
+  if (R.mode === 'ordenar') { rDownOrden(p); return; }
   if (R.mode === 'cortar' && R.tool === 'razor' && p.y >= RT.v && p.y <= RT.v + RT.vh) {
     rCut(rSnap(rt(p.x))); return;
   }
@@ -1426,7 +1465,40 @@ function rDown(e){
   else if (p.x >= xa && p.x <= xb && p.y >= RT.v && p.y <= RT.v + RT.vh) R.sel = 'video';
   else R.sel = null;
 }
-function rMove(e){ if (R && R.drag) rSeek(rSnap(rt(pt(e).x))); }
+function rMove(e){
+  if (!R) return;
+  var p = pt(e);
+  if (R.drag) rSeek(rSnap(rt(p.x)));
+  if (R.dp) { R.dp.gx = p.x; R.dp.gy = p.y; }
+}
+
+/* --- Nivel de ordenar: arrastrar los trozos cortados dentro de V1 --- */
+function rEnSitio(){ return R.order.filter(function(k, i){ return k === i; }).length; }
+function rDownOrden(p){
+  var idx = Math.floor((rt(p.x) - R.a) / BP);
+  if (p.y < RT.v || p.y > RT.v + RT.vh || idx < 0 || idx >= R.order.length) return;
+  var key = R.order.splice(idx, 1)[0];
+  R.dp = { key:key, from:idx, gx:p.x, gy:p.y, off:p.x - rx(R.a + idx * BP) };
+  cv.style.cursor = 'grabbing';
+}
+function rDropIdx(){                                    // en qué hueco de V1 caería el trozo que llevas
+  var d = R.dp, c = rt(d.gx - d.off + BP * R.pps / 2);
+  if (d.gy < RT.v - 40 || d.gy > RT.v + RT.vh + 60) return d.from;
+  return Math.max(0, Math.min(R.order.length, Math.round((c - R.a) / BP - .5)));
+}
+function rDrop(){
+  var d = R.dp, idx = rDropIdx();
+  R.dp = null; cv.style.cursor = '';
+  R.order.splice(idx, 0, d.key);
+  if (idx !== d.from) { S.steps++; S.score += 20; beep(700, .08, 'triangle'); }
+  if (R.order.every(function(k, i){ return k === i; })) {
+    S.score += 300; S.hop = .55; S.combo++; if (S.combo > S.bestCombo) S.bestCombo = S.combo;
+    burst(W / 2, RT.v + 20, 30, [C_PERF, C_GOOD, '#fff']);
+    pop(W / 2, RT.v - 20, '+300', C_PERF); beep(900, .15, 'triangle');
+    R.final = true; aviso('¡Orden correcto! Mira cómo queda al ritmo.');
+    rPause(); R.pos = R.a; rPlay(1, 1);
+  }
+}
 
 /* --- Dibujo del nivel de ritmo --- */
 function rPeaks(){
@@ -1444,7 +1516,20 @@ function rPeaks(){
 function rSegImg(k){ return CLIPDEFS[ORDEN_IMG[k % ORDEN_IMG.length]]; }
 function rSegAt(t){ var k = 0; R.cuts.forEach(function(c){ if (c <= t + 1e-6) k++; }); return k; }
 
+function rGuion(){
+  panel(PRJ, 'Guion: este es el orden');
+  for (var i = 0; i < 8; i++) {
+    var x = PRJ.x + 8 + (i % 2) * 140, y = PRJ.y + 30 + Math.floor(i / 2) * 44, def = CLIPDEFS[ORDEN_IMG[i]], ok = R.order[i] === i;
+    ctx.fillStyle = ok ? '#1b3326' : '#2c2c2c'; rr(x, y, 132, 40, 4); ctx.fill();
+    txt((i + 1) + '.', x + 6, y + 25, ok ? '#6fcf97' : '#9a9a9a', 13, 'left', true);
+    var im = IMGC[def.img];
+    if (im) { ctx.save(); ctx.beginPath(); ctx.rect(x + 24, y + 4, 40, 32); ctx.clip(); cover(im, x + 24, y + 4, 40, 32); ctx.restore(); }
+    txt(def.name.replace('.mp4', '').replace('_', ' '), x + 69, y + 24, ok ? '#bfe8cd' : '#d0d0d0', 10);
+    if (ok) txt('✓', x + 120, y + 25, '#6fcf97', 14, 'left', true);
+  }
+}
 function rProyecto(){
+  if (R.mode === 'ordenar') { rGuion(); return; }
   panel(PRJ, 'Proyecto: Practica_Ritmo');
   var c0 = binCell(0), c1 = binCell(1);
   [c0, c1].forEach(function(c){ ctx.fillStyle = '#2c2c2c'; rr(c.x, c.y, c.w, c.h, 5); ctx.fill(); });
@@ -1478,12 +1563,16 @@ function rMonitor(){
   panel(MON, 'Monitor de programa');
   var sh = S.shake > 0 ? Math.sin(S.time * 80) * 4 : 0, x = VID.x + sh, p = rPos();
   var def = R.mode === 'cortar' ? rSegImg(rSegAt(p)) : CLIPDEFS[5];
+  if (R.mode === 'ordenar') {
+    var ks = R.order[Math.max(0, Math.min(R.order.length - 1, Math.floor((p - R.a) / BP)))];
+    def = CLIPDEFS[ORDEN_IMG[ks === undefined ? 0 : ks]];
+  }
   var imp = IMGC[def.img], loc = Math.max(0, Math.min(1, (p - R.a) / (R.b - R.a)));
   if (imp) cover(imp, x, VID.y, VID.w, VID.h, loc, 1.18);
   else { ctx.fillStyle = 'hsl(' + def.hue + ',32%,24%)'; ctx.fillRect(x, VID.y, VID.w, VID.h); }
   ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fillRect(x, VID.y + VID.h - 20, VID.w, 20);
   txt(tc(Math.max(0, p - R.a) / CLIP_SECS), x + 8, VID.y + VID.h - 6, '#8fd0ff', 12.5, 'left', true);
-  txt(R.playing ? '▶' : '❚❚', x + VID.w - 8, VID.y + VID.h - 6, '#fff', 12.5, 'right', true);
+  txt(R.playing ? (R.dir < 0 ? '◀ J' : '▶ L') + (R.rate > 1 ? ' ' + R.rate + 'x' : '') : '❚❚ K', x + VID.w - 8, VID.y + VID.h - 6, '#fff', 12.5, 'right', true);
   // guía de pulso, solo en modo práctica del nivel de marcar
   if (R.mode === 'marcar' && !S.reto && !R.cal && R.playing && p >= R.beats[0] - BP * 1.1 && p <= R.beats[R.beats.length - 1] + .3) {
     var ph = (((p - RIT.beat0) / BP) % 1 + 1) % 1, r = 8 + 16 * Math.exp(-ph * 6);
@@ -1506,14 +1595,16 @@ function rHint(){
     return R.pos <= R.a + .01 ? 'Pulsa ESPACIO para reproducir y marca con M cada golpe fuerte de la canción'
                               : 'Pulsa ESPACIO para continuar y sigue marcando con M';
   }
+  if (R.mode === 'ordenar') return 'Arrastra los trozos dentro de V1 hasta dejarlos en el orden del guion';
   var nx = 0; while (nx < R.beats.length && R.cutDone[nx]) nx++;
   if (R.tool === 'razor') return 'Con la cuchilla, haz clic sobre el marcador ' + (nx + 1) + ' (se pega solo)';
   return 'Shift+M: siguiente marcador · Ctrl+K: cortar (marcador ' + (nx + 1) + ' de ' + R.beats.length + ')';
 }
 function rBar(){
-  var head = R.mode === 'marcar' ? 'MARCAR  ' + R.hits + ' de ' + R.beats.length : 'CORTAR  ' + R.hits + ' de ' + R.beats.length;
+  var head = R.mode === 'marcar' ? 'MARCAR  ' + R.hits + ' de ' + R.beats.length
+           : R.mode === 'ordenar' ? 'ORDEN  ' + rEnSitio() + ' de 8' : 'CORTAR  ' + R.hits + ' de ' + R.beats.length;
   txt(head, 22, BAR.y + 20, '#8a8a8a', 12.5, 'left', true);
-  txt(R.mode === 'marcar' ? 'Tecla M' : 'Cortes', 22, BAR.y + 42, '#b8b8b8', 15, 'left', true);
+  txt(R.mode === 'marcar' ? 'Tecla M' : R.mode === 'ordenar' ? 'Reordenar' : 'Cortes', 22, BAR.y + 42, '#b8b8b8', 15, 'left', true);
   var t = S.aviso || rHint(), col = S.aviso ? '#ffd27a' : '#ffffff', size = 24, maxW = W - 196 - 14;
   var medir = function(s, z){ ctx.font = '600 ' + z + 'px "Segoe UI", system-ui, sans-serif'; return ctx.measureText(s).width; };
   while (size > 15 && medir(t, size) > maxW) size--;
@@ -1526,12 +1617,15 @@ function rBar(){
 function rKeys(){
   var cut = R.mode === 'cortar', want = null, nx = 0;
   if (cut) { while (nx < R.beats.length && R.cutDone[nx]) nx++; }
+  var tr = [{ id:'J', n:'J', d:'atrás', w:56 }, { id:'K', n:'K', d:'parar', w:56 }, { id:'L', n:'L', d:'adelante', w:56 }];
   var keys = cut
-    ? [{ id:'ShiftM', n:'Shift+M', d:'sig. marcador', w:96 }, { id:'CtrlK', n:'Ctrl+K', d:'cortar', w:76 },
-       { id:'C', n:'C', d:'cuchilla', w:56 }, { id:'V', n:'V', d:'selección', w:56 }, { id:'Space', n:'ESPACIO', d:'play / pausa', w:110 }]
-    : [{ id:'Space', n:'ESPACIO', d:'play / pausa', w:130 }, { id:'M', n:'M', d:'marcador', w:80 }];
-  if (!cut) want = R.sel ? null : R.playing ? 'M' : 'Space';
-  else if (!R.final) want = R.tool === 'razor' ? 'C' : 'CtrlK';
+    ? tr.concat([{ id:'ShiftM', n:'Shift+M', d:'sig. marcador', w:96 }, { id:'CtrlK', n:'Ctrl+K', d:'cortar', w:76 },
+       { id:'C', n:'C', d:'cuchilla', w:56 }, { id:'V', n:'V', d:'selección', w:56 }, { id:'Space', n:'ESPACIO', d:'play / pausa', w:100 }])
+    : R.mode === 'ordenar'
+    ? tr.concat([{ id:'Space', n:'ESPACIO', d:'play / pausa', w:110 }])
+    : tr.concat([{ id:'Space', n:'ESPACIO', d:'play / pausa', w:110 }, { id:'M', n:'M', d:'marcador', w:70 }]);
+  if (R.mode === 'marcar') want = R.sel ? null : R.playing ? 'M' : 'L';
+  else if (cut && !R.final) want = R.tool === 'razor' ? 'C' : 'CtrlK';
   var gap = 12, total = 0;
   keys.forEach(function(k){ total += k.w + gap; });
   var x = (W - (total - gap)) / 2, y = KEYS_Y;
@@ -1546,9 +1640,22 @@ function rKeys(){
   });
 }
 
-function rTag(x, y, color){                              // etiqueta de marcador, como en la regla de Premiere
+function rTag(x, y, color, n){                          // etiqueta de marcador, como en la regla de Premiere
   ctx.fillStyle = color;
-  ctx.beginPath(); ctx.moveTo(x - 5, y); ctx.lineTo(x + 5, y); ctx.lineTo(x + 5, y + 8); ctx.lineTo(x, y + 13); ctx.lineTo(x - 5, y + 8); ctx.closePath(); ctx.fill();
+  ctx.beginPath(); ctx.moveTo(x - 8, y); ctx.lineTo(x + 8, y); ctx.lineTo(x + 8, y + 12); ctx.lineTo(x, y + 19); ctx.lineTo(x - 8, y + 12); ctx.closePath(); ctx.fill();
+  if (n) txt(String(n), x, y + 11, '#0d2a1c', 10.5, 'center', true);
+}
+
+function rPieza(def, x0, x1, selec, enSitio){
+  ctx.save(); ctx.beginPath(); ctx.rect(x0, RT.v + 2, x1 - x0, RT.vh - 4); ctx.clip();
+  var imt = IMGC[def.img];
+  if (imt) cover(imt, x0, RT.v + 2, x1 - x0, RT.vh - 4, .5);
+  else { ctx.fillStyle = 'hsl(' + def.hue + ',38%,45%)'; ctx.fillRect(x0, RT.v + 2, x1 - x0, RT.vh - 4); }
+  ctx.fillStyle = 'rgba(0,0,0,.42)'; ctx.fillRect(x0, RT.v + 2, x1 - x0, 15);
+  txt('fx  ' + def.name + ' [V]', x0 + 6, RT.v + 14, '#fff', 11);
+  ctx.restore();
+  ctx.strokeStyle = selec ? '#fff' : enSitio ? C_PERF : 'rgba(0,0,0,.65)'; ctx.lineWidth = selec || enSitio ? 2 : 1;
+  ctx.strokeRect(x0 + .5, RT.v + 2.5, x1 - x0 - 1, RT.vh - 5); ctx.lineWidth = 1;
 }
 
 function rTimeline(){
@@ -1585,18 +1692,19 @@ function rTimeline(){
   }
 
   // clips de V1 (se parten en cada corte)
-  var edges = [R.a].concat(R.cuts).concat([R.b]);
-  for (i = 0; i < edges.length - 1; i++) {
-    var x0 = rx(edges[i]), x1 = rx(edges[i + 1]) - 2, def = R.mode === 'cortar' ? rSegImg(i) : CLIPDEFS[5];
-    ctx.save(); ctx.beginPath(); ctx.rect(x0, RT.v + 2, x1 - x0, RT.vh - 4); ctx.clip();
-    var imt = IMGC[def.img];
-    if (imt) cover(imt, x0, RT.v + 2, x1 - x0, RT.vh - 4, .5);
-    else { ctx.fillStyle = 'hsl(' + def.hue + ',38%,45%)'; ctx.fillRect(x0, RT.v + 2, x1 - x0, RT.vh - 4); }
-    ctx.fillStyle = 'rgba(0,0,0,.42)'; ctx.fillRect(x0, RT.v + 2, x1 - x0, 15);
-    txt('fx  ' + def.name + ' [V]', x0 + 6, RT.v + 14, '#fff', 11);
-    ctx.restore();
-    ctx.strokeStyle = R.sel === 'video' ? '#fff' : 'rgba(0,0,0,.65)'; ctx.lineWidth = R.sel === 'video' ? 2 : 1;
-    ctx.strokeRect(x0 + .5, RT.v + 2.5, x1 - x0 - 1, RT.vh - 5); ctx.lineWidth = 1;
+  if (R.mode === 'ordenar') {
+    R.order.forEach(function(key, k){
+      rPieza(CLIPDEFS[ORDEN_IMG[key]], rx(R.a + k * BP), rx(R.a + (k + 1) * BP) - 2, false, key === k);
+    });
+    if (R.dp) {
+      var ti = rDropIdx(), lx = rx(R.a + ti * BP);
+      ctx.strokeStyle = C_PERF; ctx.setLineDash([6, 4]); ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(lx, RT.v - 6); ctx.lineTo(lx, RT.v + RT.vh + 6); ctx.stroke(); ctx.setLineDash([]); ctx.lineWidth = 1;
+    }
+  } else {
+    var edges = [R.a].concat(R.cuts).concat([R.b]);
+    for (i = 0; i < edges.length - 1; i++)
+      rPieza(R.mode === 'cortar' ? rSegImg(i) : CLIPDEFS[5], rx(edges[i]), rx(edges[i + 1]) - 2, R.sel === 'video', false);
   }
 
   // clip de audio con su forma de onda
@@ -1612,25 +1720,33 @@ function rTimeline(){
   ctx.strokeRect(ax0 + .5, RT.a + 2.5, ax1 - ax0 - 1, RT.ah - 5); ctx.lineWidth = 1;
 
   // marcadores
+  var markersArriba = [];
   R.markers.forEach(function(m){
     var mx = rx(m.t);
     if (m.kind === 'clip') {                           // marcador pegado al clip: es el error típico
       var cy = m.on === 'audio' ? RT.a + 2 : RT.v + 2;
-      ctx.fillStyle = C_CLIP; ctx.fillRect(mx - 1, cy, 2, 18); rTag(mx, cy + 14, C_CLIP);
+      ctx.fillStyle = C_CLIP; ctx.fillRect(mx - 1, cy, 2, 18); rTag(mx, cy + 14, C_CLIP, '!');
       return;
     }
     var col = m.ok === 'miss' ? C_MISS : m.ok === 'good' ? C_GOOD : C_PERF;
-    ctx.fillStyle = m.ok === 'miss' ? 'rgba(232,74,74,.45)' : 'rgba(63,207,135,.3)';
-    ctx.fillRect(mx - .5, RT.ruler + 14, 1, RT.a + RT.ah - RT.ruler - 14);
-    rTag(mx, RT.ruler + 7, col);
+    ctx.fillStyle = m.ok === 'miss' ? 'rgba(232,74,74,.5)' : 'rgba(63,207,135,.4)';
+    ctx.fillRect(mx - .5, RT.ruler + 18, 1, RT.a + RT.ah - RT.ruler - 18);
+    markersArriba.push([mx, col, m.n]);
   });
   ctx.restore();
+  markersArriba.forEach(function(t){ rTag(t[0], RT.ruler - 1, t[1], t[2]); });   // siempre arriba, en la regla
 
   // cabezal
   var cx = rx(rPos());
   ctx.fillStyle = '#2d8ceb'; ctx.fillRect(cx - 1, RT.ruler, 2, RT.a + RT.ah - RT.ruler);
   ctx.beginPath(); ctx.moveTo(cx - 8, RT.ruler); ctx.lineTo(cx + 8, RT.ruler); ctx.lineTo(cx, RT.ruler + 14); ctx.fill();
   drawChar(cx, RT.v + 4, 40, S.time, R.playing ? 'run' : S.hop > 0 ? 'jump' : 'idle');
+  if (R.dp) {
+    ctx.globalAlpha = .88;
+    var gx0 = R.dp.gx - R.dp.off;
+    rPieza(CLIPDEFS[ORDEN_IMG[R.dp.key]], gx0, gx0 + BP * R.pps - 2, true, false);
+    ctx.globalAlpha = 1;
+  }
 
   S.parts.forEach(function(p){
     ctx.globalAlpha = Math.max(0, 1 - p.t / p.life);
@@ -1656,7 +1772,7 @@ function showMenu(){
     return '<option value="' + i + '">Nivel ' + (i + 1) + ' — ' + l.name + (b ? '  (récord ' + b.score + ')' : '') + '</option>';
   }).join('');
   showOv('<h2>🎬 Premiere Runner</h2>' +
-    '<p>Practica el flujo real de Premiere Pro: abres el clip, lo recorres con <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd>, marcas <kbd>I</kbd> y <kbd>O</kbd>, lo arrastras a la línea de tiempo pegado al anterior, aprendes a reordenar la secuencia, marcas el ritmo de una canción con <kbd>M</kbd> y cortas sobre esos marcadores.</p>' +
+    '<p>Practica el flujo real de Premiere Pro: abres el clip, lo recorres con <kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd>, marcas <kbd>I</kbd> y <kbd>O</kbd>, lo arrastras a la línea de tiempo pegado al anterior, aprendes a reordenar la secuencia, marcas el ritmo de una canción con <kbd>M</kbd>, cortas sobre esos marcadores y ordenas los cortes según un guion.</p>' +
     '<div class="modes">' +
       '<div class="mode' + (menuReto ? '' : ' on') + '" id="mPrac"><b>Modo práctica</b><span>Sin reloj y sin vidas. Equivócate las veces que haga falta. Recomendado para empezar.</span></div>' +
       '<div class="mode' + (menuReto ? ' on' : '') + '" id="mReto"><b>Modo reto</b><span>Con reloj, 5 vidas y puntaje. Para cuando ya te sepas las teclas.</span></div>' +
@@ -1695,7 +1811,8 @@ function showHelp(){
     '<b>5.</b> Si queda un <b>hueco</b> rojo entre dos clips, arrastra el último hacia la izquierda hasta que se pegue.<br>' +
     '<b>6.</b> En el nivel de <b>reordenar</b>, los clips ya están en V1 pero desordenados: arrástralos dentro de la pista hasta que queden en el orden del guion de la izquierda.<br>' +
     '<b>7.</b> En <b>Marcadores al ritmo</b>, haz clic en un espacio vacío de la línea de tiempo (si el audio queda seleccionado, la <kbd>M</kbd> marca el clip y no la secuencia), pulsa <kbd>ESPACIO</kbd> y marca con <kbd>M</kbd> cada golpe de la canción.<br>' +
-    '<b>8.</b> En <b>Cortar al ritmo</b>, <kbd>Shift</kbd>+<kbd>M</kbd> lleva el cabezal al siguiente marcador y <kbd>Ctrl</kbd>+<kbd>K</kbd> corta ahí (o usa la cuchilla con <kbd>C</kbd>).' +
+    '<b>8.</b> En <b>Cortar al ritmo</b>, <kbd>Shift</kbd>+<kbd>M</kbd> lleva el cabezal al siguiente marcador y <kbd>Ctrl</kbd>+<kbd>K</kbd> corta ahí (o usa la cuchilla con <kbd>C</kbd>). Con <kbd>J</kbd> y <kbd>L</kbd> también puedes retroceder y avanzar; pulsa otra vez para ir más rápido.<br>' +
+    '<b>9.</b> En <b>Ordenar los cortes</b>, arrastra los trozos dentro de V1 hasta dejarlos en el orden del guion; después se reproduce con la música.' +
     '</div>' +
     '<p>Cada clip tiene su propio ambiente sonoro. Suena cuando lo reproduces en el monitor y cuando el cabezal pasa por encima en la línea de tiempo.</p>' +
     '<p>En <b>modo práctica</b> no hay reloj ni vidas: puedes repetir cada paso.</p>' +
@@ -1724,7 +1841,7 @@ window.addEventListener('keydown', function(e){
 });
 cv.addEventListener('pointerdown', function(e){ if (S.mode === 'play' && lv().rhythm) rDown(e); else onDown(e); });
 window.addEventListener('pointermove', function(e){ if (S.mode === 'play' && lv().rhythm) rMove(e); else onMove(e); });
-window.addEventListener('pointerup', function(e){ if (R) R.drag = false; onUp(e); });
+window.addEventListener('pointerup', function(e){ if (R) { R.drag = false; if (R.dp && S.mode === 'play') rDrop(); } onUp(e); });
 cv.addEventListener('dblclick', function(e){ e.preventDefault(); });
 document.addEventListener('visibilitychange', function(){ if (document.hidden && S.mode === 'play') togglePause(); });
 
