@@ -15,6 +15,7 @@ sin necesidad de pedir permiso ni dar crédito. Aun así se acredita a quien los
 | Taller | [Office Typing/Rolling Chair/Distant Chatter](https://freesound.org/people/SduggySounds/sounds/725716/) | SduggySounds | CC0 1.0 |
 | La Ronda | [A crowd of fans singing La Mamba to a guitar.wav](https://freesound.org/people/fakeplasticman/sounds/442653/) | fakeplasticman | CC0 1.0 |
 | Musica del documental | [Wonders [cinematic background music][107 bpm]](https://freesound.org/people/Seth_Makes_Sounds/sounds/814843/) | Seth_Makes_Sounds | CC0 1.0 |
+| Marcadores al ritmo (niveles 8 y 9) | Under the Glass Canopy | Aportada por Adobe Cursos Quito | *(pendiente: indicar autor y licencia)* |
 
 La música de la interfaz (el loop de fondo mientras se juega) no es un archivo:
 se genera dentro del propio juego con la Web Audio API.
