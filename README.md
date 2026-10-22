@@ -18,3 +18,9 @@ Hecho para las capacitaciones de **Adobe Cursos Quito**.
 Jugar: https://jbelicoso.github.io/premiere-runner/
 
 Créditos de los sonidos en [CREDITOS.md](CREDITOS.md) (todos CC0).
+
+## Nota técnica sobre el audio
+
+Cada `assets/audio/<nombre>.mp3` tiene un gemelo `assets/audio/<nombre>.js` con el mismo audio en base64.
+Sirve para que el juego suene también al abrir `index.html` con doble clic (file://), donde el navegador
+no deja leer los mp3 directamente. Si cambias un mp3, hay que regenerar su `.js`.
